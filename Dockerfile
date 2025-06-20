@@ -1,26 +1,32 @@
-# Base image with Rust
+# Use official Rust image
 FROM rust:1.75
 
-# Install Soroban CLI
+# Install Node.js & dependencies
 RUN apt-get update && apt-get install -y \
-    curl unzip pkg-config libssl-dev build-essential
+    curl \
+    build-essential \
+    ca-certificates \
+    gnupg \
+    pkg-config \
+    libssl-dev \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && apt-get clean
 
-RUN curl -sSf https://install.soroban.stellar.org | bash
+# Install rustfmt and cargo test comes by default
+RUN rustup component add rustfmt
 
-# Set the correct PATH for Soroban CLI
-ENV PATH="/root/.cargo/bin:${PATH}"
+# Install Soroban CLI
+RUN cargo install --locked --version 20.0.0 soroban-cli
 
-# Create app directory
+# Set working directory
 WORKDIR /app
 
-# Copy backend code
+# Copy your app code into the container
 COPY . .
 
-# Install Node dependencies if needed (optional)
-# RUN npm install
-
-# Expose port
+# Expose backend port
 EXPOSE 4000
 
-# Start server
+# Run the server
 CMD ["node", "server.js"]
