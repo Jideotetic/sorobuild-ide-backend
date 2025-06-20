@@ -25,6 +25,8 @@ WORKDIR /app
 # Copy your app code into the container
 COPY . .
 
+RUN npm install
+
 # Expose backend port
 EXPOSE 4000
 
