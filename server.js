@@ -10,16 +10,14 @@ import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import toml from "@iarna/toml";
 import archiver from "archiver";
 import fsSync from "fs";
-import { rejects } from "assert";
+import { spawn } from "child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = 4000;
 const BASE_STORAGE_DIR = path.join(__dirname, "projects");
-const TEMP_DIR = path.join(os.tmpdir(), "rust-temp-projects");
 const execAsync = promisify(exec);
 const app = express();
 
@@ -82,60 +80,116 @@ async function readProjectFile(projectId, filePath) {
 	return fs.readFile(absolutePath, "utf8");
 }
 
-async function listProjectFiles(projectId) {
-	const projectPath = await getProjectPath(projectId);
-
-	const readDirRecursive = async (dir) => {
-		const entries = await fs.readdir(dir, { withFileTypes: true });
-		const files = [];
-
-		for (const entry of entries) {
-			const fullPath = path.join(dir, entry.name);
-			if (entry.isDirectory()) {
-				files.push(...(await readDirRecursive(fullPath)));
-			} else {
-				const relativePath = path.relative(projectPath, fullPath);
-				files.push(normalizePath(relativePath));
-			}
-		}
-
-		return files;
-	};
-
-	return readDirRecursive(projectPath);
-}
-
-// async function createTempProject(projectId, action) {
-// 	const tempProjectDir = path.join(TEMP_DIR, `${projectId}-${action}`);
-// 	await fs.mkdir(tempProjectDir, { recursive: true });
+// async function listProjectFiles(projectId) {
 // 	const projectPath = await getProjectPath(projectId);
-// 	await execAsync(`cp -r ${projectPath}/. ${tempProjectDir}`);
-// 	return tempProjectDir;
-// }
 
-// async function cleanupTempProject(projectId, action) {
-// 	const tempProjectDir = path.join(TEMP_DIR, `${projectId}-${action}`);
-// 	try {
-// 		await fs.rm(tempProjectDir, { recursive: true, force: true });
-// 	} catch (err) {
-// 		console.error("Cleanup failed:", err);
-// 	}
+// 	const readDirRecursive = async (dir) => {
+// 		const entries = await fs.readdir(dir, { withFileTypes: true });
+// 		const files = [];
+
+// 		for (const entry of entries) {
+// 			const fullPath = path.join(dir, entry.name);
+// 			if (entry.isDirectory()) {
+// 				files.push(...(await readDirRecursive(fullPath)));
+// 			} else {
+// 				const relativePath = path.relative(projectPath, fullPath);
+// 				files.push(normalizePath(relativePath));
+// 			}
+// 		}
+
+// 		return files;
+// 	};
+
+// 	return readDirRecursive(projectPath);
 // }
 
 // Rust Operations
 
+// async function formatRustCode(projectId, filePath, code) {
+// 	try {
+// 		const projectDir = await getProjectPath(projectId);
+// 		const cargoTomlPath = path.join(projectDir, "Cargo.toml");
+// 		await fs.access(cargoTomlPath);
+
+// 		console.log({ code });
+
+// 		// await saveProjectFile(projectId, filePath, code);
+
+// 		const { stdout } = await execAsync("cargo fmt", {
+// 			cwd: projectDir,
+// 			timeout: 600_000,
+// 		});
+
+// 		console.log({ code });
+// 		const formattedContent = await readProjectFile(projectId, filePath);
+// 		console.log({ formattedContent });
+// 		return formattedContent;
+// 	} catch (error) {
+// 		console.error("Formatting error:", error);
+// 		return code;
+// 	}
+// }
+
 async function formatRustCode(code) {
-	try {
-		const { stdout } = await execAsync("rustfmt --emit stdout", {
-			input: code,
-			timeout: 5000,
+	return new Promise((resolve) => {
+		const child = spawn("rustfmt", ["--emit", "stdout", "--edition", "2021"]);
+
+		let stdout = "";
+		let stderr = "";
+
+		child.stdout.on("data", (data) => {
+			stdout += data.toString();
 		});
-		return stdout;
-	} catch (error) {
-		console.error("Formatting error:", error);
-		return code;
-	}
+
+		child.stderr.on("data", (data) => {
+			stderr += data.toString();
+		});
+
+		child.on("error", (err) => {
+			console.error("rustfmt error:", err);
+			resolve(code); // Return original code
+		});
+
+		child.on("close", (codeExit, signal) => {
+			if (codeExit === 0 && !stderr.trim()) {
+				resolve(stdout);
+			} else {
+				console.error("rustfmt failed:", { codeExit, signal, stderr });
+				resolve(code); // Return original if formatting fails
+			}
+		});
+
+		// Write code to rustfmt's stdin
+		child.stdin.write(code);
+		child.stdin.end();
+	});
 }
+
+// async function formatRustCode(code) {
+// 	try {
+// 		const { stdout } = await execAsync("rustfmt --emit stdout --edition 2021", {
+// 			input: code,
+// 			timeout: 1000,
+// 			maxBuffer: 1024 * 1024 * 5,
+// 		});
+
+// 		// Verify the output isn't empty
+// 		if (!stdout.trim()) {
+// 			console.warn("rustfmt returned empty output");
+// 			return code;
+// 		}
+
+// 		return stdout;
+// 	} catch (error) {
+// 		console.error("Formatting failed:", {
+// 			cmd: error.cmd,
+// 			code: error.code,
+// 			signal: error.signal,
+// 			stderr: error.stderr?.toString() || "",
+// 		});
+// 		return code; // Return original if formatting fails
+// 	}
+// }
 
 async function runRustTests(projectId) {
 	const projectDir = await createTempProject(projectId, "test");
@@ -319,41 +373,48 @@ app.get("/api/projects/:projectId/files", async (req, res) => {
 app.put("/api/projects/:projectId/files", async (req, res) => {
 	try {
 		const { path: filePath, content } = req.body;
+
+		console.log(content);
+
+		let finalContent = await formatRustCode(content);
+
+		console.log(finalContent);
+
 		await saveProjectFile(
 			req.params.projectId,
 			normalizePath(filePath),
-			content
+			finalContent
 		);
-		res.json({ success: true });
+		res.json({ success: true, content: finalContent });
 	} catch (err) {
 		console.error("Failed to update file:", err);
 		res.status(500).json({ error: "Failed to update file" });
 	}
 });
 
-app.post("/api/projects/:projectId/format", async (req, res) => {
-	try {
-		const { path: filePath } = req.body;
-		const content = await readProjectFile(
-			req.params.projectId,
-			normalizePath(filePath)
-		);
-		const formatted = await formatRustCode(content);
+// app.post("/api/projects/:projectId/format", async (req, res) => {
+// 	try {
+// 		const { path: filePath } = req.body;
+// 		const content = await readProjectFile(
+// 			req.params.projectId,
+// 			normalizePath(filePath)
+// 		);
+// 		const formatted = await formatRustCode(content);
 
-		if (formatted !== content) {
-			await saveProjectFile(
-				req.params.projectId,
-				normalizePath(filePath),
-				formatted
-			);
-		}
+// 		if (formatted !== content) {
+// 			await saveProjectFile(
+// 				req.params.projectId,
+// 				normalizePath(filePath),
+// 				formatted
+// 			);
+// 		}
 
-		res.json({ formatted });
-	} catch (err) {
-		console.error("Formatting failed:", err);
-		res.status(500).json({ error: "Formatting failed" });
-	}
-});
+// 		res.json({ formatted });
+// 	} catch (err) {
+// 		console.error("Formatting failed:", err);
+// 		res.status(500).json({ error: "Formatting failed" });
+// 	}
+// });
 
 app.post("/api/projects/:projectId/test", async (req, res) => {
 	try {
