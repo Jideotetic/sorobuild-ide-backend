@@ -4,12 +4,16 @@ import cors from "cors";
 import { promisify } from "util";
 import { exec } from "child_process";
 import fs from "fs/promises";
-import path from "path";
+import path, { resolve } from "path";
 import os from "os";
 import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import toml from "@iarna/toml";
+import archiver from "archiver";
+import fsSync from "fs";
+import { rejects } from "assert";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,15 +69,16 @@ async function saveProjectFile(projectId, filePath, content) {
 		await getProjectPath(projectId),
 		normalizedPath
 	);
-	// const projectPath = await getProjectPath(projectId);
-	// const absolutePath = path.join(projectPath, filePath);
+
+	console.log("Saving", "====>", absolutePath);
+
 	await fs.mkdir(path.dirname(absolutePath), { recursive: true });
 	await fs.writeFile(absolutePath, content);
 }
 
 async function readProjectFile(projectId, filePath) {
 	const projectPath = await getProjectPath(projectId);
-	const absolutePath = path.join(projectPath, filePath);
+	const absolutePath = path.join(projectPath, normalizePath(filePath));
 	return fs.readFile(absolutePath, "utf8");
 }
 
@@ -100,24 +105,25 @@ async function listProjectFiles(projectId) {
 	return readDirRecursive(projectPath);
 }
 
-async function createTempProject(projectId, action) {
-	const tempProjectDir = path.join(TEMP_DIR, `${projectId}-${action}`);
-	await fs.mkdir(tempProjectDir, { recursive: true });
-	const projectPath = await getProjectPath(projectId);
-	await execAsync(`cp -r ${projectPath}/. ${tempProjectDir}`);
-	return tempProjectDir;
-}
+// async function createTempProject(projectId, action) {
+// 	const tempProjectDir = path.join(TEMP_DIR, `${projectId}-${action}`);
+// 	await fs.mkdir(tempProjectDir, { recursive: true });
+// 	const projectPath = await getProjectPath(projectId);
+// 	await execAsync(`cp -r ${projectPath}/. ${tempProjectDir}`);
+// 	return tempProjectDir;
+// }
 
-async function cleanupTempProject(projectId, action) {
-	const tempProjectDir = path.join(TEMP_DIR, `${projectId}-${action}`);
-	try {
-		await fs.rm(tempProjectDir, { recursive: true, force: true });
-	} catch (err) {
-		console.error("Cleanup failed:", err);
-	}
-}
+// async function cleanupTempProject(projectId, action) {
+// 	const tempProjectDir = path.join(TEMP_DIR, `${projectId}-${action}`);
+// 	try {
+// 		await fs.rm(tempProjectDir, { recursive: true, force: true });
+// 	} catch (err) {
+// 		console.error("Cleanup failed:", err);
+// 	}
+// }
 
 // Rust Operations
+
 async function formatRustCode(code) {
 	try {
 		const { stdout } = await execAsync("rustfmt --emit stdout", {
@@ -162,48 +168,28 @@ async function runRustTests(projectId) {
 }
 
 async function compileSorobanContract(projectId) {
-	const projectDir = await createTempProject(projectId, "compile");
-
 	try {
-		// Initialize as Soroban contract if needed
-		try {
-			await fs.access(path.join(projectDir, "Cargo.toml"));
-		} catch {
-			await execAsync(
-				`cargo generate --git https://github.com/stellar/soroban-examples --name contract`,
-				{ cwd: path.dirname(projectDir) }
-			);
-		}
+		const projectDir = await getProjectPath(projectId);
 
 		const { stdout, stderr } = await execAsync("soroban contract build", {
 			cwd: projectDir,
-			timeout: 60000,
+			timeout: 600_000,
 		});
-
-		// Find the WASM file
-		const wasmPath = path.join(
-			projectDir,
-			"target",
-			"wasm32-unknown-unknown",
-			"release",
-			"contract.wasm"
-		);
-
-		const wasmBuffer = await fs.readFile(wasmPath);
 
 		return {
 			success: true,
-			wasm: wasmBuffer.toString("base64"),
 			output: stdout + stderr,
+			wasmPath: path.join(projectDir, "target/wasm32v1-none/release"),
 		};
 	} catch (error) {
+		console.log(error);
 		return {
 			success: false,
 			error: error.message,
-			output: error.stdout + error.stderr,
+			output: (error.stdout || "") + (error.stderr || ""),
+			code: error.code, // Exit code
+			signal: error.signal, // If process was killed
 		};
-	} finally {
-		await cleanupTempProject(projectId, "compile");
 	}
 }
 
@@ -214,10 +200,9 @@ app.post("/api/projects", async (req, res) => {
 
 		const files = req.body.files;
 
-		console.log(files);
-
 		for (const [filePath, content] of Object.entries(files)) {
-			await saveProjectFile(projectId, filePath, content);
+			const normalizedFilePath = normalizePath(filePath);
+			await saveProjectFile(projectId, normalizedFilePath, content);
 		}
 
 		res.json({ projectId });
@@ -227,8 +212,93 @@ app.post("/api/projects", async (req, res) => {
 	}
 });
 
+// app.get("/api/projects/:projectId/download", async (req, res) => {
+// 	try {
+// 		const projectId = req.params.projectId;
+// 		const projectDir = await getProjectPath(projectId);
+// 		const zipPath = path.join(os.tmpdir(), `${projectId}.zip`);
+
+// 		const output = fsSync.createWriteStream(zipPath);
+// 		const archive = archiver("zip", { zlib: { level: 9 } });
+
+// 		// Handle stream error
+// 		output.on("error", (err) => {
+// 			console.error("Write stream error:", err);
+// 			res.status(500).end("Failed to write zip");
+// 		});
+
+// 		archive.on("error", (err) => {
+// 			console.error("Archive error:", err);
+// 			res.status(500).end("Failed to archive project");
+// 		});
+
+// 		// Start piping archive content
+// 		archive.pipe(output);
+
+// 		// Add files to the archive
+// 		archive.directory(projectDir, false);
+// 		archive.finalize();
+
+// 		// Once writing is done
+// 		output.on("close", () => {
+// 			// Headers before piping
+// 			res.setHeader("Content-Type", "application/zip");
+// 			res.setHeader(
+// 				"Content-Disposition",
+// 				`attachment; filename="${projectId}.zip"`
+// 			);
+
+// 			const fileStream = fsSync.createReadStream(zipPath);
+
+// 			fileStream.pipe(res);
+
+// 			fileStream.on("end", () => {
+// 				fs.unlink(zipPath).catch(console.error);
+// 			});
+
+// 			fileStream.on("error", (err) => {
+// 				console.error("Read stream error:", err);
+// 				res.status(500).end("Failed to stream zip");
+// 			});
+// 		});
+// 	} catch (error) {
+// 		console.error("Download failed:", error);
+// 		res.status(500).json({ error: "Download failed", details: error.message });
+// 	}
+// });
+
+app.get("/api/projects/:projectId/download", async (req, res) => {
+	try {
+		const projectId = req.params.projectId;
+		const projectDir = await getProjectPath(projectId);
+
+		res.setHeader("Content-Type", "application/zip");
+		res.setHeader(
+			"Content-Disposition",
+			`attachment; filename="${projectId}.zip"`
+		);
+
+		const archive = archiver("zip", { zlib: { level: 9 } });
+
+		archive.on("error", (err) => {
+			console.error("Archive error:", err);
+			res.status(500).end("Failed to create archive");
+		});
+
+		// Pipe archive directly to response
+		archive.pipe(res);
+
+		archive.directory(projectDir, false);
+		await archive.finalize(); // Wait until archive is finished
+	} catch (error) {
+		console.error("Download failed:", error);
+		res.status(500).json({ error: "Download failed", details: error.message });
+	}
+});
+
 app.get("/api/projects/:projectId/files", async (req, res) => {
 	try {
+		console.log(req.params.projectId);
 		const files = await listProjectFiles(req.params.projectId);
 		const contents = {};
 
@@ -249,7 +319,11 @@ app.get("/api/projects/:projectId/files", async (req, res) => {
 app.put("/api/projects/:projectId/files", async (req, res) => {
 	try {
 		const { path: filePath, content } = req.body;
-		await saveProjectFile(req.params.projectId, filePath, content);
+		await saveProjectFile(
+			req.params.projectId,
+			normalizePath(filePath),
+			content
+		);
 		res.json({ success: true });
 	} catch (err) {
 		console.error("Failed to update file:", err);
@@ -260,11 +334,18 @@ app.put("/api/projects/:projectId/files", async (req, res) => {
 app.post("/api/projects/:projectId/format", async (req, res) => {
 	try {
 		const { path: filePath } = req.body;
-		const content = await readProjectFile(req.params.projectId, filePath);
+		const content = await readProjectFile(
+			req.params.projectId,
+			normalizePath(filePath)
+		);
 		const formatted = await formatRustCode(content);
 
 		if (formatted !== content) {
-			await saveProjectFile(req.params.projectId, filePath, formatted);
+			await saveProjectFile(
+				req.params.projectId,
+				normalizePath(filePath),
+				formatted
+			);
 		}
 
 		res.json({ formatted });
@@ -284,13 +365,77 @@ app.post("/api/projects/:projectId/test", async (req, res) => {
 	}
 });
 
-app.post("/api/projects/:projectId/compile", async (req, res) => {
+app.post("/api/projects/:projectId/build", async (req, res) => {
 	try {
-		const compileResults = await compileSorobanContract(req.params.projectId);
-		res.json(compileResults);
+		const projectId = req.params.projectId;
+		const projectDir = await getProjectPath(projectId);
+		const result = await compileSorobanContract(projectId);
+
+		if (!result.success) {
+			return res.status(400).json({
+				status: "error",
+				error: result.error,
+				output: result.output,
+				code: result.code,
+			});
+		}
+
+		// 2. Create a zip of the entire project
+		const tempDir = os.tmpdir();
+		const zipPath = path.join(tempDir, `${projectId}.zip`);
+		const output = fsSync.createWriteStream(zipPath);
+		const archive = archiver("zip", { zlib: { level: 9 } });
+
+		return new Promise((resolve, reject) => {
+			// Handle archive errors
+			archive.on("error", (err) => {
+				console.error("Archive error:", err);
+				reject(err);
+			});
+
+			archive.glob("**/*", {
+				cwd: projectDir,
+				ignore: ["project.zip"],
+			});
+
+			// Pipe the archive to the output file
+			archive.pipe(output);
+
+			// When the archive is finalized, set up the response
+			archive.on("finish", () => {
+				res.setHeader("Content-Type", "application/zip");
+				res.setHeader(
+					"Content-Disposition",
+					`attachment; filename="${projectId}.zip"`
+				);
+
+				// Create read stream and pipe to response
+				const fileStream = fsSync.createReadStream(zipPath);
+				fileStream.pipe(res);
+
+				// Clean up when done
+				fileStream.on("end", () => {
+					fs.unlink(zipPath).catch(console.error);
+					resolve();
+				});
+
+				fileStream.on("error", (err) => {
+					console.error("File stream error:", err);
+					fs.unlink(zipPath).catch(console.error);
+					reject(err);
+				});
+			});
+
+			// Add directory to archive
+			archive.directory(projectDir, false);
+			archive.finalize();
+		});
 	} catch (err) {
-		console.error("Compilation failed:", err);
-		res.status(500).json({ error: "Compilation failed" });
+		console.error("Build failed:", err);
+		res.status(500).json({
+			error: "Unexpected build failure",
+			details: err.message,
+		});
 	}
 });
 
