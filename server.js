@@ -27,7 +27,7 @@ app.use(
 		origin: [
 			"http://localhost:5173",
 			"http://127.0.0.1:5173",
-			"https://rust-ide-five.vercel.app/",
+			"https://rust-ide-five.vercel.app",
 		],
 		credentials: true,
 	})
@@ -67,8 +67,6 @@ async function saveProjectFile(projectId, filePath, content) {
 		await getProjectPath(projectId),
 		normalizedPath
 	);
-
-	console.log("Saving", "====>", absolutePath);
 
 	await fs.mkdir(path.dirname(absolutePath), { recursive: true });
 	await fs.writeFile(absolutePath, content);
@@ -266,7 +264,6 @@ app.get("/api/projects/:projectId/download", async (req, res) => {
 
 app.get("/api/projects/:projectId/files", async (req, res) => {
 	try {
-		console.log(req.params.projectId);
 		const files = await listProjectFiles(req.params.projectId);
 		const contents = {};
 
