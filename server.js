@@ -177,7 +177,7 @@ async function runRustTests(projectId) {
 
 		const { stdout, stderr } = await execAsync("cargo test -- --nocapture", {
 			cwd: projectDir,
-			timeout: 600_000,
+			timeout: 1_200_000,
 		});
 
 		return { output: stdout };
@@ -194,7 +194,7 @@ async function compileSorobanContract(projectId) {
 
 		const { stdout, stderr } = await execAsync("soroban contract build", {
 			cwd: projectDir,
-			timeout: 600_000,
+			timeout: 1_200_000,
 		});
 
 		return {
