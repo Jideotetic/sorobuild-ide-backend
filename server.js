@@ -165,59 +165,28 @@ async function formatRustCode(code) {
 	});
 }
 
-// async function formatRustCode(code) {
-// 	try {
-// 		const { stdout } = await execAsync("rustfmt --emit stdout --edition 2021", {
-// 			input: code,
-// 			timeout: 1000,
-// 			maxBuffer: 1024 * 1024 * 5,
-// 		});
-
-// 		// Verify the output isn't empty
-// 		if (!stdout.trim()) {
-// 			console.warn("rustfmt returned empty output");
-// 			return code;
-// 		}
-
-// 		return stdout;
-// 	} catch (error) {
-// 		console.error("Formatting failed:", {
-// 			cmd: error.cmd,
-// 			code: error.code,
-// 			signal: error.signal,
-// 			stderr: error.stderr?.toString() || "",
-// 		});
-// 		return code; // Return original if formatting fails
-// 	}
-// }
-
 async function runRustTests(projectId) {
-	const projectDir = await createTempProject(projectId, "test");
-
 	try {
-		// Ensure Cargo.toml exists
+		const projectDir = await getProjectPath(projectId);
 		try {
 			await fs.access(path.join(projectDir, "Cargo.toml"));
 		} catch {
-			await execAsync(`cargo init --bin ${projectDir}`);
+			return {
+				output:
+					"Not a valid Rust project: Cargo.toml not found in the directory.",
+			};
 		}
 
-		const { stdout, stderr } = await execAsync("cargo test", {
+		const { stdout, stderr } = await execAsync("cargo test -- --nocapture", {
 			cwd: projectDir,
-			timeout: 30000,
+			timeout: 600_000,
 		});
 
-		return {
-			passed: !stderr,
-			output: stdout + stderr,
-		};
+		return { output: stdout };
 	} catch (error) {
 		return {
-			passed: false,
-			output: error.stdout + error.stderr,
+			output: (error.stdout ?? "") + (error.stderr ?? "") || String(error),
 		};
-	} finally {
-		await cleanupTempProject(projectId, "test");
 	}
 }
 
@@ -241,8 +210,8 @@ async function compileSorobanContract(projectId) {
 			success: false,
 			error: error.message,
 			output: (error.stdout || "") + (error.stderr || ""),
-			code: error.code, // Exit code
-			signal: error.signal, // If process was killed
+			code: error.code,
+			signal: error.signal,
 		};
 	}
 }
@@ -265,61 +234,6 @@ app.post("/api/projects", async (req, res) => {
 		res.status(500).json({ error: "Project creation failed" });
 	}
 });
-
-// app.get("/api/projects/:projectId/download", async (req, res) => {
-// 	try {
-// 		const projectId = req.params.projectId;
-// 		const projectDir = await getProjectPath(projectId);
-// 		const zipPath = path.join(os.tmpdir(), `${projectId}.zip`);
-
-// 		const output = fsSync.createWriteStream(zipPath);
-// 		const archive = archiver("zip", { zlib: { level: 9 } });
-
-// 		// Handle stream error
-// 		output.on("error", (err) => {
-// 			console.error("Write stream error:", err);
-// 			res.status(500).end("Failed to write zip");
-// 		});
-
-// 		archive.on("error", (err) => {
-// 			console.error("Archive error:", err);
-// 			res.status(500).end("Failed to archive project");
-// 		});
-
-// 		// Start piping archive content
-// 		archive.pipe(output);
-
-// 		// Add files to the archive
-// 		archive.directory(projectDir, false);
-// 		archive.finalize();
-
-// 		// Once writing is done
-// 		output.on("close", () => {
-// 			// Headers before piping
-// 			res.setHeader("Content-Type", "application/zip");
-// 			res.setHeader(
-// 				"Content-Disposition",
-// 				`attachment; filename="${projectId}.zip"`
-// 			);
-
-// 			const fileStream = fsSync.createReadStream(zipPath);
-
-// 			fileStream.pipe(res);
-
-// 			fileStream.on("end", () => {
-// 				fs.unlink(zipPath).catch(console.error);
-// 			});
-
-// 			fileStream.on("error", (err) => {
-// 				console.error("Read stream error:", err);
-// 				res.status(500).end("Failed to stream zip");
-// 			});
-// 		});
-// 	} catch (error) {
-// 		console.error("Download failed:", error);
-// 		res.status(500).json({ error: "Download failed", details: error.message });
-// 	}
-// });
 
 app.get("/api/projects/:projectId/download", async (req, res) => {
 	try {
@@ -374,11 +288,7 @@ app.put("/api/projects/:projectId/files", async (req, res) => {
 	try {
 		const { path: filePath, content } = req.body;
 
-		console.log(content);
-
 		let finalContent = await formatRustCode(content);
-
-		console.log(finalContent);
 
 		await saveProjectFile(
 			req.params.projectId,
@@ -391,30 +301,6 @@ app.put("/api/projects/:projectId/files", async (req, res) => {
 		res.status(500).json({ error: "Failed to update file" });
 	}
 });
-
-// app.post("/api/projects/:projectId/format", async (req, res) => {
-// 	try {
-// 		const { path: filePath } = req.body;
-// 		const content = await readProjectFile(
-// 			req.params.projectId,
-// 			normalizePath(filePath)
-// 		);
-// 		const formatted = await formatRustCode(content);
-
-// 		if (formatted !== content) {
-// 			await saveProjectFile(
-// 				req.params.projectId,
-// 				normalizePath(filePath),
-// 				formatted
-// 			);
-// 		}
-
-// 		res.json({ formatted });
-// 	} catch (err) {
-// 		console.error("Formatting failed:", err);
-// 		res.status(500).json({ error: "Formatting failed" });
-// 	}
-// });
 
 app.post("/api/projects/:projectId/test", async (req, res) => {
 	try {
@@ -498,11 +384,6 @@ app.post("/api/projects/:projectId/build", async (req, res) => {
 			details: err.message,
 		});
 	}
-});
-
-// Health check
-app.get("/health", (req, res) => {
-	res.status(200).send("OK");
 });
 
 // Start server

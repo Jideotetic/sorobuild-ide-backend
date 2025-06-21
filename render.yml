@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: sorobuild-ide-backend
+    env: docker
+    plan: free
+    branch: main
+    repo: https://github.com/jideotetic/sorobuild-ide-backend
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+    autoDeploy: true

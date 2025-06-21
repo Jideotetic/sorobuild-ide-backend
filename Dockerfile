@@ -1,7 +1,7 @@
-# Use official Rust image
-FROM rust:1.75
+# Use Rust image matching your local version (1.84)
+FROM rust:1.84
 
-# Install Node.js & dependencies
+# Install Node.js 18 (matches your local setup)
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
@@ -9,26 +9,40 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     pkg-config \
     libssl-dev \
+    libdbus-1-3 \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean
 
-# Install rustfmt and cargo test comes by default
-RUN rustup component add rustfmt
+# Install Rust components (matches your local)
+RUN rustup component add rustfmt rust-analyzer && \
+    rustup target add wasm32v1-none
 
-# Install Soroban CLI
-RUN cargo install --locked --version 20.0.0 soroban-cli
+# Install exact Soroban CLI version from your local (22.8.1)
+# RUN cargo install soroban-cli --version 22.8.1 --locked
+
+# FAST INSTALL - Pre-built Soroban CLI
+RUN curl -sSL -o soroban.tar.gz https://github.com/stellar/soroban-cli/releases/download/v22.8.1/stellar-cli-22.8.1-x86_64-unknown-linux-gnu.tar.gz && \
+    tar -xzf soroban.tar.gz && \
+    mv stellar /usr/local/bin/soroban && \
+    chmod +x /usr/local/bin/soroban && \
+    rm soroban.tar.gz
+
+
+# Verify versions (optional but recommended)
+RUN rustc --version && \
+    cargo --version && \
+    soroban version
 
 # Set working directory
 WORKDIR /app
 
-# Copy your app code into the container
-COPY . .
-
+# Optimized layer caching for npm
+COPY package.json package-lock.json ./
 RUN npm install
 
-# Expose backend port
-EXPOSE 4000
+# Copy remaining files
+COPY . .
 
-# Run the server
-CMD ["node", "server.js"]
+EXPOSE 4000
+CMD ["npx", "nodemon"]
