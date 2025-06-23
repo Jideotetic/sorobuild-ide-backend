@@ -18,6 +18,21 @@ import multer from "multer";
 
 const upload = multer({ dest: "temps/" });
 
+// const upload = multer({
+// storage: multer.diskStorage({
+// 	destination: (req, file, cb) => {
+// 		cb(null, os.tmpdir()); // Use system temp directory
+// 	},
+// 	filename: (req, file, cb) => {
+// 		cb(null, `upload-${Date.now()}-${file.originalname}`);
+// 	},
+// }),
+// limits: {
+// 	fileSize: 50 * 1024 * 1024, // 50MB per file
+// 	files: MAX_BATCH_SIZE,
+// },
+// });
+
 // const buildQueue = new PQueue({ concurrency: 1 });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +49,7 @@ app.use(
 			"http://127.0.0.1:5173",
 			"https://rust-ide-five.vercel.app",
 		],
+		methods: ["GET", "POST", "PUT"],
 		credentials: true,
 	})
 );
@@ -276,10 +292,23 @@ app.post("/api/projects/upload", upload.array("files"), async (req, res) => {
 				const absoluteFilePath = path.join(absoluteDirPath, fileName);
 
 				await fs.mkdir(absoluteDirPath, { recursive: true });
+				// const readStream = fsSync.createReadStream(file.path);
+				// const writeStream = fsSync.createWriteStream(absoluteFilePath);
+
+				// await new Promise((resolve, reject) => {
+				// 	readStream
+				// 		.pipe(writeStream)
+				// 		.on("error", reject)
+				// 		.on("finish", resolve);
+				// });
+
 				await fs.copyFile(file.path, absoluteFilePath);
 
 				await fs.unlink(file.path).catch((err) => {
-					console.error(`Failed to delete temp file ${file.path}:`, err);
+					console.warn(
+						`Warning: Failed to unlink temp file ${file.path}`,
+						err.message
+					);
 				});
 			})
 		);
