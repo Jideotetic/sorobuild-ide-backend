@@ -260,22 +260,22 @@ app.post("/api/projects/create", async (req, res) => {
 	try {
 		const projectId = uuidv4();
 
-		console.log(projectId);
+		console.log({ projectId });
 
 		if (req.body?.files && Object.keys(req.body.files).length > 0) {
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 
-			console.log(projectDir);
+			console.log({ projectDir });
 			await fs.mkdir(projectDir, { recursive: true });
 			const { files, rootName = "New Folder" } = req.body;
 			const targetDir = path.join(projectDir, rootName);
-			console.log(targetDir);
+			console.log({ targetDir });
 
 			await fs.mkdir(targetDir, { recursive: true });
 
 			for (const [filename, content] of Object.entries(files)) {
 				const filePath = path.join(targetDir, filename);
-				console.log(filePath);
+				console.log({ filePath });
 				await fs.writeFile(filePath, content);
 			}
 		}
@@ -294,6 +294,8 @@ app.post(
 		try {
 			const projectId = req.params.projectId;
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+			console.log({ projectId });
+			console.log({ projectDir });
 
 			// const actualPath = path.join("temps", path.basename(req.file.path, ".zip"));
 
@@ -322,12 +324,16 @@ app.post(
 			// Read and extract zip
 			const zip = new JSZip();
 			const content = await fs.readFile(req.file.path);
+			console.log({ content });
 			const zipData = await zip.loadAsync(content);
+			console.log({ zipData });
 
 			await Promise.all(
 				Object.keys(zipData.files).map(async (relativePath) => {
 					const file = zipData.files[relativePath];
 					if (zipData.files[relativePath].dir) return;
+
+					console.log({ file });
 
 					// const fileContent = await zipData.files[relativePath].async("text");
 					// const absolutePath = path.join(projectDir, relativePath);
