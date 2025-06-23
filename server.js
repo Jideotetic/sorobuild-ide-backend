@@ -13,7 +13,12 @@ import rateLimit from "express-rate-limit";
 import archiver from "archiver";
 import fsSync from "fs";
 import { spawn } from "child_process";
+import PQueue from "p-queue";
+import multer from "multer";
 
+const upload = multer({ dest: "temps/" });
+
+// const buildQueue = new PQueue({ concurrency: 1 });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = 4000;
@@ -215,21 +220,64 @@ async function compileSorobanContract(projectId) {
 }
 
 // API Endpoints
-app.post("/api/projects", async (req, res) => {
+app.post("/api/projects/create", async (req, res) => {
 	try {
 		const projectId = uuidv4();
 
-		const files = req.body.files;
+		const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 
-		for (const [filePath, content] of Object.entries(files)) {
-			const normalizedFilePath = normalizePath(filePath);
-			await saveProjectFile(projectId, normalizedFilePath, content);
-		}
+		await fs.mkdir(projectDir, { recursive: true });
 
 		res.json({ projectId });
 	} catch (err) {
 		console.error("Project creation failed:", err);
 		res.status(500).json({ error: "Project creation failed" });
+	}
+});
+
+app.post("/api/projects/upload", upload.array("files"), async (req, res) => {
+	try {
+		const { projectId, folderName } = req.body;
+
+		if (!projectId || !folderName) {
+			return res.status(400).json({ error: "Missing projectId or folderName" });
+		}
+
+		const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+
+		try {
+			await fs.access(projectDir);
+		} catch {
+			return res.status(400).json({ error: "Project does not exist" });
+		}
+
+		await Promise.all(
+			req.files.map(async (file, i) => {
+				const paths = Array.isArray(req.body.paths)
+					? req.body.paths
+					: [req.body.paths];
+				const relativePath = paths[i];
+
+				const pathParts = relativePath.split("/").filter(Boolean);
+				const fileName = pathParts.pop();
+				const dirStructure = pathParts.join("/");
+
+				const absoluteDirPath = path.join(projectDir, dirStructure);
+				const absoluteFilePath = path.join(absoluteDirPath, fileName);
+
+				await fs.mkdir(absoluteDirPath, { recursive: true });
+				await fs.copyFile(file.path, absoluteFilePath);
+
+				await fs.unlink(file.path).catch((err) => {
+					console.error(`Failed to delete temp file ${file.path}:`, err);
+				});
+			})
+		);
+
+		res.json({ success: true, count: req.files.length });
+	} catch (err) {
+		console.error("Batch upload failed:", err);
+		res.status(500).json({ error: "Batch upload failed" });
 	}
 });
 
@@ -301,7 +349,9 @@ app.put("/api/projects/:projectId/files", async (req, res) => {
 
 app.post("/api/projects/:projectId/test", async (req, res) => {
 	try {
-		const testResults = await runRustTests(req.params.projectId);
+		// const testResults = await buildQueue.add(() =>
+		runRustTests(req.params.projectId);
+		// );
 		res.json(testResults);
 	} catch (err) {
 		console.error("Testing failed:", err);
@@ -313,7 +363,9 @@ app.post("/api/projects/:projectId/build", async (req, res) => {
 	try {
 		const projectId = req.params.projectId;
 		const projectDir = await getProjectPath(projectId);
-		const result = await compileSorobanContract(projectId);
+		// const result = await buildQueue.add(() =>
+		compileSorobanContract(projectId);
+		// );
 
 		if (!result.success) {
 			return res.status(400).json({
@@ -394,3 +446,8 @@ initializeStorage()
 		console.error("Failed to initialize storage:", err);
 		process.exit(1);
 	});
+
+app.use((err, req, res, next) => {
+	console.error("Unhandled error:", err);
+	res.status(500).json({ error: "Internal Server Error" });
+});
