@@ -16,7 +16,13 @@ import { spawn } from "child_process";
 import PQueue from "p-queue";
 import multer from "multer";
 
-const upload = multer({ dest: "temps/" });
+const upload = multer({
+	dest: "temps/",
+	limits: {
+		fileSize: 50 * 1024 * 1024, // 50MB per file
+		files: 20, // Maximum number of files
+	},
+});
 
 // const upload = multer({
 // storage: multer.diskStorage({
@@ -292,17 +298,17 @@ app.post("/api/projects/upload", upload.array("files"), async (req, res) => {
 				const absoluteFilePath = path.join(absoluteDirPath, fileName);
 
 				await fs.mkdir(absoluteDirPath, { recursive: true });
-				// const readStream = fsSync.createReadStream(file.path);
-				// const writeStream = fsSync.createWriteStream(absoluteFilePath);
+				const readStream = fsSync.createReadStream(file.path);
+				const writeStream = fsSync.createWriteStream(absoluteFilePath);
 
-				// await new Promise((resolve, reject) => {
-				// 	readStream
-				// 		.pipe(writeStream)
-				// 		.on("error", reject)
-				// 		.on("finish", resolve);
-				// });
+				await new Promise((resolve, reject) => {
+					readStream
+						.pipe(writeStream)
+						.on("error", reject)
+						.on("finish", resolve);
+				});
 
-				await fs.copyFile(file.path, absoluteFilePath);
+				// await fs.copyFile(file.path, absoluteFilePath);
 
 				await fs.unlink(file.path).catch((err) => {
 					console.warn(
