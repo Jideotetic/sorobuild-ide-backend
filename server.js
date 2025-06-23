@@ -260,16 +260,22 @@ app.post("/api/projects/create", async (req, res) => {
 	try {
 		const projectId = uuidv4();
 
+		console.log(projectId);
+
 		if (req.body?.files && Object.keys(req.body.files).length > 0) {
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+
+			console.log(projectDir);
 			await fs.mkdir(projectDir, { recursive: true });
 			const { files, rootName = "New Folder" } = req.body;
 			const targetDir = path.join(projectDir, rootName);
+			console.log(targetDir);
 
 			await fs.mkdir(targetDir, { recursive: true });
 
 			for (const [filename, content] of Object.entries(files)) {
 				const filePath = path.join(targetDir, filename);
+				console.log(filePath);
 				await fs.writeFile(filePath, content);
 			}
 		}
