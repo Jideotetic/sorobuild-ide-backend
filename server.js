@@ -260,6 +260,7 @@ app.post("/api/projects/create", async (req, res) => {
 	try {
 		const projectId = uuidv4();
 
+		console.log(req.path);
 		console.log({ projectId });
 
 		if (req.body?.files && Object.keys(req.body.files).length > 0) {
@@ -291,6 +292,7 @@ app.post(
 	"/api/projects/:projectId/upload-zip",
 	upload.single("file"),
 	async (req, res) => {
+		console.log(req.path);
 		try {
 			const projectId = req.params.projectId;
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
