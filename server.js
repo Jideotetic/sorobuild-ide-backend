@@ -222,11 +222,21 @@ async function compileSorobanContract(projectId) {
 // API Endpoints
 app.post("/api/projects/create", async (req, res) => {
 	try {
+		const { files } = req.body;
 		const projectId = uuidv4();
 
 		const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 
 		await fs.mkdir(projectDir, { recursive: true });
+
+		if (files) {
+			const fileProjectDir = path.join(projectDir, "New Folder");
+			await fs.mkdir(fileProjectDir, { recursive: true });
+			for (const [filename, content] of Object.entries(files)) {
+				const filePath = path.join(fileProjectDir, filename);
+				await fs.writeFile(filePath, content);
+			}
+		}
 
 		res.json({ projectId });
 	} catch (err) {
