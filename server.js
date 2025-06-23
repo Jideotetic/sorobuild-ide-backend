@@ -14,6 +14,9 @@ import {
 	initializeStorage,
 	__dirname,
 	getProjectPath,
+	saveProjectFile,
+	formatRustCode,
+	normalizePath,
 } from "./utils.js";
 import archiver from "archiver";
 
@@ -117,6 +120,47 @@ app.post(
 	}
 );
 
+app.get("/api/projects/:projectId/download", async (req, res) => {
+	try {
+		console.log({ req: req.path });
+		const projectId = req.params.projectId;
+		const projectDir = await getProjectPath(projectId);
+
+		if (!projectDir) {
+			return res.status(400).json({ error: "No project found" });
+		}
+
+		const items = await fs.readdir(projectDir);
+		const [rootFolderName] = items;
+
+		const targetDir = path.join(projectDir, rootFolderName);
+
+		res.setHeader("Content-Type", "application/zip");
+		res.setHeader(
+			"Content-Disposition",
+			`attachment; filename="${rootFolderName}.zip"`
+		);
+
+		const archive = archiver("zip", { zlib: { level: 9 } });
+
+		archive.on("error", (err) => {
+			console.error("Archive error:", err);
+			res.status(500).end("Failed to create archive");
+		});
+
+		archive.directory(targetDir, rootFolderName);
+
+		// Pipe archive directly to response
+		archive.pipe(res);
+
+		// archive.directory(projectDir, false);
+		await archive.finalize(); // Wait until archive is finished
+	} catch (error) {
+		console.error("Download failed:", error);
+		res.status(500).json({ error: "Download failed", details: error.message });
+	}
+});
+
 // app.post("/api/projects/upload", async (req, res) => {
 // 	try {
 // 		const { projectId, folderName } = req.body;
@@ -176,47 +220,6 @@ app.post(
 // 	}
 // });
 
-app.get("/api/projects/:projectId/download", async (req, res) => {
-	try {
-		console.log({ req: req.path });
-		const projectId = req.params.projectId;
-		const projectDir = await getProjectPath(projectId);
-
-		if (!projectDir) {
-			return res.status(400).json({ error: "No project found" });
-		}
-
-		const items = await fs.readdir(projectDir);
-		const [rootFolderName] = items;
-
-		const targetDir = path.join(projectDir, rootFolderName);
-
-		res.setHeader("Content-Type", "application/zip");
-		res.setHeader(
-			"Content-Disposition",
-			`attachment; filename="${rootFolderName}.zip"`
-		);
-
-		const archive = archiver("zip", { zlib: { level: 9 } });
-
-		archive.on("error", (err) => {
-			console.error("Archive error:", err);
-			res.status(500).end("Failed to create archive");
-		});
-
-		archive.directory(targetDir, rootFolderName);
-
-		// Pipe archive directly to response
-		archive.pipe(res);
-
-		// archive.directory(projectDir, false);
-		await archive.finalize(); // Wait until archive is finished
-	} catch (error) {
-		console.error("Download failed:", error);
-		res.status(500).json({ error: "Download failed", details: error.message });
-	}
-});
-
 // app.get("/api/projects/:projectId/files", async (req, res) => {
 // 	try {
 // 		const files = await listProjectFiles(req.params.projectId);
@@ -236,23 +239,25 @@ app.get("/api/projects/:projectId/download", async (req, res) => {
 // 	}
 // });
 
-// app.put("/api/projects/:projectId/files", async (req, res) => {
-// 	try {
-// 		const { path: filePath, content } = req.body;
+app.put("/api/projects/:projectId/files", async (req, res) => {
+	try {
+		const { path: filePath, content } = req.body;
 
-// 		let finalContent = await formatRustCode(content);
+		console.log(filePath);
 
-// 		await saveProjectFile(
-// 			req.params.projectId,
-// 			normalizePath(filePath),
-// 			finalContent
-// 		);
-// 		res.json({ success: true, content: finalContent });
-// 	} catch (err) {
-// 		console.error("Failed to update file:", err);
-// 		res.status(500).json({ error: "Failed to update file" });
-// 	}
-// });
+		let finalContent = await formatRustCode(content);
+
+		await saveProjectFile(
+			req.params.projectId,
+			normalizePath(filePath),
+			finalContent
+		);
+		res.json({ success: true, content: finalContent });
+	} catch (err) {
+		console.error("Failed to update file:", err);
+		res.status(500).json({ error: "Failed to update file" });
+	}
+});
 
 // app.post("/api/projects/:projectId/test", async (req, res) => {
 // 	try {

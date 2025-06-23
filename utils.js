@@ -23,7 +23,7 @@ export async function getProjectPath(projectId) {
 	return projectPath;
 }
 
-async function saveProjectFile(projectId, filePath, content) {
+export async function saveProjectFile(projectId, filePath, content) {
 	const normalizedPath = normalizePath(filePath);
 	const absolutePath = path.join(
 		await getProjectPath(projectId),
@@ -88,7 +88,7 @@ async function readProjectFile(projectId, filePath) {
 	return fs.readFile(absolutePath, "utf8");
 }
 
-async function formatRustCode(code) {
+export async function formatRustCode(code) {
 	return new Promise((resolve) => {
 		const child = spawn("rustfmt", ["--emit", "stdout", "--edition", "2021"]);
 
