@@ -19,8 +19,10 @@
 		"express": "^5.1.0",
 		"express-rate-limit": "^7.5.0",
 		"helmet": "^8.1.0",
+		"jszip": "^3.10.1",
 		"multer": "^2.0.1",
 		"p-queue": "^8.1.0",
+		"unzipper": "^0.12.3",
 		"uuid": "^11.1.0",
 		"ws": "^8.18.2"
 	},
