@@ -1,67 +1,33 @@
+import "dotenv/config";
 import express from "express";
-import bodyParser from "body-parser";
 import cors from "cors";
 import { promisify } from "util";
 import { exec } from "child_process";
 import fs from "fs/promises";
-import path, { resolve } from "path";
-import os from "os";
+import path from "path";
 import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
-import archiver from "archiver";
-import fsSync from "fs";
-import { spawn } from "child_process";
-import PQueue from "p-queue";
 import multer from "multer";
 import JSZip from "jszip";
-import unzipper from "unzipper";
-
-// const upload = multer({
-// 	dest: "temps/",
-// });
-
-// const storage = multer.memoryStorage();
-// const upload = multer({ storage });
 
 const storage = multer.diskStorage({
-	destination: (req, file, cb) => {
+	destination: (_req, _file, cb) => {
 		cb(null, path.join(__dirname, "temps"));
 	},
-	filename: (req, file, cb) => {
+	filename: (_req, file, cb) => {
 		cb(null, file.originalname);
 	},
 });
 const upload = multer({ storage });
 
-// Track file assembly in memory (for Render's stateless environment)
-// const fileAssemblyCache = new Map();
-
-// const upload = multer({
-// storage: multer.diskStorage({
-// 	destination: (req, file, cb) => {
-// 		cb(null, os.tmpdir()); // Use system temp directory
-// 	},
-// 	filename: (req, file, cb) => {
-// 		cb(null, `upload-${Date.now()}-${file.originalname}`);
-// 	},
-// }),
-// limits: {
-// 	fileSize: 50 * 1024 * 1024, // 50MB per file
-// 	files: MAX_BATCH_SIZE,
-// },
-// });
-
-// const buildQueue = new PQueue({ concurrency: 1 });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PORT = 4000;
+const PORT = process.env.PORT;
 const BASE_STORAGE_DIR = path.join(__dirname, "projects");
 const TEMP_DIR = path.join(__dirname, "temps");
 const execAsync = promisify(exec);
 const app = express();
-
 app.use(helmet());
 app.use(
 	cors({
@@ -74,210 +40,29 @@ app.use(
 		credentials: true,
 	})
 );
-// app.use(cors({ origin: "http://localhost:5173" }));
-// app.use(bodyParser.text({ type: "*/*", limit: "10mb" }));
-// app.use(bodyParser.json({ limit: "10mb" }));
-// app.use(
-//     rateLimit({
-//         windowMs: 15 * 60 * 1000,
-//         max: 100,
-//     })
-// );
 
 app.use(express.json({ limit: "500mb" }));
-
-// Ensure directories exist
-async function initializeStorage() {
-	await fs.mkdir(BASE_STORAGE_DIR, { recursive: true });
-	await fs.mkdir(TEMP_DIR, { recursive: true });
-}
-
-function normalizePath(filePath) {
-	return filePath.replace(/\\/g, "/");
-}
-
-// Storage Functions
-async function getProjectPath(projectId) {
-	const projectPath = path.join(BASE_STORAGE_DIR, projectId);
-	await fs.mkdir(projectPath, { recursive: true });
-	return projectPath;
-}
-
-async function saveProjectFile(projectId, filePath, content) {
-	const normalizedPath = normalizePath(filePath);
-	const absolutePath = path.join(
-		await getProjectPath(projectId),
-		normalizedPath
-	);
-
-	await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-	await fs.writeFile(absolutePath, content);
-}
-
-async function readProjectFile(projectId, filePath) {
-	const projectPath = await getProjectPath(projectId);
-	const absolutePath = path.join(projectPath, normalizePath(filePath));
-	return fs.readFile(absolutePath, "utf8");
-}
-
-// async function listProjectFiles(projectId) {
-// 	const projectPath = await getProjectPath(projectId);
-
-// 	const readDirRecursive = async (dir) => {
-// 		const entries = await fs.readdir(dir, { withFileTypes: true });
-// 		const files = [];
-
-// 		for (const entry of entries) {
-// 			const fullPath = path.join(dir, entry.name);
-// 			if (entry.isDirectory()) {
-// 				files.push(...(await readDirRecursive(fullPath)));
-// 			} else {
-// 				const relativePath = path.relative(projectPath, fullPath);
-// 				files.push(normalizePath(relativePath));
-// 			}
-// 		}
-
-// 		return files;
-// 	};
-
-// 	return readDirRecursive(projectPath);
-// }
-
-// Rust Operations
-
-// async function formatRustCode(projectId, filePath, code) {
-// 	try {
-// 		const projectDir = await getProjectPath(projectId);
-// 		const cargoTomlPath = path.join(projectDir, "Cargo.toml");
-// 		await fs.access(cargoTomlPath);
-
-// 		console.log({ code });
-
-// 		// await saveProjectFile(projectId, filePath, code);
-
-// 		const { stdout } = await execAsync("cargo fmt", {
-// 			cwd: projectDir,
-// 			timeout: 600_000,
-// 		});
-
-// 		console.log({ code });
-// 		const formattedContent = await readProjectFile(projectId, filePath);
-// 		console.log({ formattedContent });
-// 		return formattedContent;
-// 	} catch (error) {
-// 		console.error("Formatting error:", error);
-// 		return code;
-// 	}
-// }
-
-async function formatRustCode(code) {
-	return new Promise((resolve) => {
-		const child = spawn("rustfmt", ["--emit", "stdout", "--edition", "2021"]);
-
-		let stdout = "";
-		let stderr = "";
-
-		child.stdout.on("data", (data) => {
-			stdout += data.toString();
-		});
-
-		child.stderr.on("data", (data) => {
-			stderr += data.toString();
-		});
-
-		child.on("error", (err) => {
-			console.error("rustfmt error:", err);
-			resolve(code); // Return original code
-		});
-
-		child.on("close", (codeExit, signal) => {
-			if (codeExit === 0 && !stderr.trim()) {
-				resolve(stdout);
-			} else {
-				console.error("rustfmt failed:", { codeExit, signal, stderr });
-				resolve(code); // Return original if formatting fails
-			}
-		});
-
-		// Write code to rustfmt's stdin
-		child.stdin.write(code);
-		child.stdin.end();
-	});
-}
-
-async function runRustTests(projectId) {
-	try {
-		const projectDir = await getProjectPath(projectId);
-		try {
-			await fs.access(path.join(projectDir, "Cargo.toml"));
-		} catch {
-			return {
-				output:
-					"Not a valid Rust project: Cargo.toml not found in the directory.",
-			};
-		}
-
-		const { stdout, stderr } = await execAsync("cargo test -- --nocapture", {
-			cwd: projectDir,
-			timeout: 1_200_000,
-		});
-
-		return { output: stdout };
-	} catch (error) {
-		return {
-			output: (error.stdout ?? "") + (error.stderr ?? "") || String(error),
-		};
-	}
-}
-
-async function compileSorobanContract(projectId) {
-	try {
-		const projectDir = await getProjectPath(projectId);
-
-		const { stdout, stderr } = await execAsync("soroban contract build", {
-			cwd: projectDir,
-			timeout: 1_200_000,
-		});
-
-		return {
-			success: true,
-			output: stdout + stderr,
-			wasmPath: path.join(projectDir, "target/wasm32v1-none/release"),
-		};
-	} catch (error) {
-		console.log(error);
-		return {
-			success: false,
-			error: error.message,
-			output: (error.stdout || "") + (error.stderr || ""),
-			code: error.code,
-			signal: error.signal,
-		};
-	}
-}
 
 // API Endpoints
 app.post("/api/projects/create", async (req, res) => {
 	try {
 		const projectId = uuidv4();
 
-		console.log(req.path);
-		console.log({ projectId });
+		console.log({ req: req.path, projectId });
 
 		if (req.body?.files && Object.keys(req.body.files).length > 0) {
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 
-			console.log({ projectDir });
 			await fs.mkdir(projectDir, { recursive: true });
 			const { files, rootName = "New Folder" } = req.body;
 			const targetDir = path.join(projectDir, rootName);
-			console.log({ targetDir });
 
 			await fs.mkdir(targetDir, { recursive: true });
 
 			for (const [filename, content] of Object.entries(files)) {
 				const filePath = path.join(targetDir, filename);
-				console.log({ filePath });
+
+				console.log({ projectDir, targetDir, filePath });
 				await fs.writeFile(filePath, content);
 			}
 		}
@@ -642,7 +427,7 @@ initializeStorage()
 		process.exit(1);
 	});
 
-app.use((err, req, res, next) => {
+app.use((err, _req, res, _next) => {
 	console.error("Unhandled error:", err);
 	res.status(500).json({ error: "Internal Server Error" });
 });
