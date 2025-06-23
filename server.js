@@ -27,7 +27,7 @@ import unzipper from "unzipper";
 
 const storage = multer.diskStorage({
 	destination: (req, file, cb) => {
-		cb(null, "temps/");
+		cb(null, path.join(__dirname, "temps"));
 	},
 	filename: (req, file, cb) => {
 		cb(null, file.originalname);
@@ -58,6 +58,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = 4000;
 const BASE_STORAGE_DIR = path.join(__dirname, "projects");
+const TEMP_DIR = path.join(__dirname, "temps");
 const execAsync = promisify(exec);
 const app = express();
 
@@ -88,7 +89,7 @@ app.use(express.json({ limit: "500mb" }));
 // Ensure directories exist
 async function initializeStorage() {
 	await fs.mkdir(BASE_STORAGE_DIR, { recursive: true });
-	// await fs.mkdir(TEMP_DIR, { recursive: true });
+	await fs.mkdir(TEMP_DIR, { recursive: true });
 }
 
 function normalizePath(filePath) {
@@ -293,7 +294,14 @@ app.post(
 	upload.single("file"),
 	async (req, res) => {
 		console.log(req.path);
+
 		try {
+			try {
+				await fs.access(path.join(__dirname, "temps"));
+			} catch (err) {
+				console.error("Temp directory missing, recreating...");
+				await fs.mkdir(path.join(__dirname, "temps"), { recursive: true });
+			}
 			const projectId = req.params.projectId;
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 			console.log({ projectId });
