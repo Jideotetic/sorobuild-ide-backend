@@ -2,11 +2,14 @@ import { spawn } from "child_process";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { exec } from "child_process";
+import { promisify } from "util";
 
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 export const BASE_STORAGE_DIR = path.join(__dirname, "projects");
 const TEMP_DIR = path.join(__dirname, "temps");
+const execAsync = promisify(exec);
 
 export async function initializeStorage() {
 	await fs.mkdir(BASE_STORAGE_DIR, { recursive: true });
@@ -57,31 +60,6 @@ const readDirRecursive = async (dir) => {
 	return files;
 };
 
-// async function formatRustCode(projectId, filePath, code) {
-// 	try {
-// 		const projectDir = await getProjectPath(projectId);
-// 		const cargoTomlPath = path.join(projectDir, "Cargo.toml");
-// 		await fs.access(cargoTomlPath);
-
-// 		console.log({ code });
-
-// 		// await saveProjectFile(projectId, filePath, code);
-
-// 		const { stdout } = await execAsync("cargo fmt", {
-// 			cwd: projectDir,
-// 			timeout: 600_000,
-// 		});
-
-// 		console.log({ code });
-// 		const formattedContent = await readProjectFile(projectId, filePath);
-// 		console.log({ formattedContent });
-// 		return formattedContent;
-// 	} catch (error) {
-// 		console.error("Formatting error:", error);
-// 		return code;
-// 	}
-// }
-
 async function readProjectFile(projectId, filePath) {
 	const projectPath = await getProjectPath(projectId);
 	const absolutePath = path.join(projectPath, normalizePath(filePath));
@@ -123,11 +101,16 @@ export async function formatRustCode(code) {
 	});
 }
 
-async function runRustTests(projectId) {
+export async function runRustTests(projectId) {
 	try {
 		const projectDir = await getProjectPath(projectId);
+
+		const items = await fs.readdir(projectDir);
+		const [rootFolderName] = items;
+
+		const targetDir = path.join(projectDir, rootFolderName);
 		try {
-			await fs.access(path.join(projectDir, "Cargo.toml"));
+			await fs.access(path.join(targetDir, "Cargo.toml"));
 		} catch {
 			return {
 				output:
@@ -136,7 +119,7 @@ async function runRustTests(projectId) {
 		}
 
 		const { stdout, stderr } = await execAsync("cargo test -- --nocapture", {
-			cwd: projectDir,
+			cwd: targetDir,
 			timeout: 1_200_000,
 		});
 
@@ -148,12 +131,17 @@ async function runRustTests(projectId) {
 	}
 }
 
-async function compileSorobanContract(projectId) {
+export async function compileSorobanContract(projectId) {
 	try {
 		const projectDir = await getProjectPath(projectId);
 
+		const items = await fs.readdir(projectDir);
+		const [rootFolderName] = items;
+
+		const targetDir = path.join(projectDir, rootFolderName);
+
 		const { stdout, stderr } = await execAsync("soroban contract build", {
-			cwd: projectDir,
+			cwd: targetDir,
 			timeout: 1_200_000,
 		});
 

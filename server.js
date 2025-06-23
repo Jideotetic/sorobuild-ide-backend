@@ -1,8 +1,6 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { promisify } from "util";
-import { exec } from "child_process";
 import fs from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
@@ -17,6 +15,8 @@ import {
 	saveProjectFile,
 	formatRustCode,
 	normalizePath,
+	compileSorobanContract,
+	runRustTests,
 } from "./utils.js";
 import archiver from "archiver";
 
@@ -32,7 +32,6 @@ const upload = multer({ storage });
 
 const PORT = process.env.PORT;
 
-const execAsync = promisify(exec);
 const app = express();
 app.use(helmet());
 app.use(
@@ -161,6 +160,74 @@ app.get("/api/projects/:projectId/download", async (req, res) => {
 	}
 });
 
+app.put("/api/projects/:projectId/save", async (req, res) => {
+	try {
+		const { path: filePath, content } = req.body;
+
+		console.log(filePath);
+
+		let finalContent = await formatRustCode(content);
+
+		await saveProjectFile(
+			req.params.projectId,
+			normalizePath(filePath),
+			finalContent
+		);
+		res.json({ success: true, content: finalContent });
+	} catch (err) {
+		console.error("Failed to update file:", err);
+		res.status(500).json({ error: "Failed to update file" });
+	}
+});
+
+app.post("/api/projects/:projectId/build", async (req, res) => {
+	try {
+		console.log({ req: req.path });
+		const projectId = req.params.projectId;
+		const projectDir = await getProjectPath(projectId);
+		const result = await compileSorobanContract(projectId);
+
+		const items = await fs.readdir(projectDir);
+		const [rootFolderName] = items;
+
+		const targetDir = path.join(projectDir, rootFolderName);
+
+		if (!result.success) {
+			return res.status(400).json({
+				status: "error",
+				error: result.error,
+				output: result.output,
+				code: result.code,
+			});
+		}
+
+		res.setHeader("Content-Type", "application/zip");
+		res.setHeader(
+			"Content-Disposition",
+			`attachment; filename="${rootFolderName}.zip"`
+		);
+
+		const archive = archiver("zip", { zlib: { level: 9 } });
+
+		archive.on("error", (err) => {
+			console.error("Archive error:", err);
+			res.status(500).end("Failed to create archive");
+		});
+
+		archive.directory(targetDir, rootFolderName);
+
+		archive.pipe(res);
+
+		await archive.finalize();
+	} catch (err) {
+		console.error("Build failed:", err);
+		res.status(500).json({
+			error: "Unexpected build failure",
+			details: err.message,
+		});
+	}
+});
+
 // app.post("/api/projects/upload", async (req, res) => {
 // 	try {
 // 		const { projectId, folderName } = req.body;
@@ -239,162 +306,16 @@ app.get("/api/projects/:projectId/download", async (req, res) => {
 // 	}
 // });
 
-app.put("/api/projects/:projectId/files", async (req, res) => {
+app.post("/api/projects/:projectId/test", async (req, res) => {
 	try {
-		const { path: filePath, content } = req.body;
+		const testResults = await runRustTests(req.params.projectId);
 
-		console.log(filePath);
-
-		let finalContent = await formatRustCode(content);
-
-		await saveProjectFile(
-			req.params.projectId,
-			normalizePath(filePath),
-			finalContent
-		);
-		res.json({ success: true, content: finalContent });
+		res.json(testResults);
 	} catch (err) {
-		console.error("Failed to update file:", err);
-		res.status(500).json({ error: "Failed to update file" });
+		console.error("Testing failed:", err);
+		res.status(500).json({ error: "Testing failed" });
 	}
 });
-
-// app.post("/api/projects/:projectId/test", async (req, res) => {
-// 	try {
-// 		// const testResults = await buildQueue.add(() =>
-// 		runRustTests(req.params.projectId);
-// 		// );
-// 		res.json(testResults);
-// 	} catch (err) {
-// 		console.error("Testing failed:", err);
-// 		res.status(500).json({ error: "Testing failed" });
-// 	}
-// });
-
-// app.post("/api/projects/:projectId/build", async (req, res) => {
-// 	try {
-// 		const projectId = req.params.projectId;
-// 		const projectDir = await getProjectPath(projectId);
-// 		// const result = await buildQueue.add(() =>
-// 		compileSorobanContract(projectId);
-// 		// );
-
-// 		if (!result.success) {
-// 			return res.status(400).json({
-// 				status: "error",
-// 				error: result.error,
-// 				output: result.output,
-// 				code: result.code,
-// 			});
-// 		}
-
-// 		// 2. Create a zip of the entire project
-// 		const tempDir = os.tmpdir();
-// 		const zipPath = path.join(tempDir, `${projectId}.zip`);
-// 		const output = fsSync.createWriteStream(zipPath);
-// 		const archive = archiver("zip", { zlib: { level: 9 } });
-
-// 		return new Promise((resolve, reject) => {
-// 			// Handle archive errors
-// 			archive.on("error", (err) => {
-// 				console.error("Archive error:", err);
-// 				reject(err);
-// 			});
-
-// 			archive.glob("**/*", {
-// 				cwd: projectDir,
-// 				ignore: ["project.zip"],
-// 			});
-
-// 			// Pipe the archive to the output file
-// 			archive.pipe(output);
-
-// 			// When the archive is finalized, set up the response
-// 			archive.on("finish", () => {
-// 				res.setHeader("Content-Type", "application/zip");
-// 				res.setHeader(
-// 					"Content-Disposition",
-// 					`attachment; filename="${projectId}.zip"`
-// 				);
-
-// 				// Create read stream and pipe to response
-// 				const fileStream = fsSync.createReadStream(zipPath);
-// 				fileStream.pipe(res);
-
-// 				// Clean up when done
-// 				fileStream.on("end", () => {
-// 					fs.unlink(zipPath).catch(console.error);
-// 					resolve();
-// 				});
-
-// 				fileStream.on("error", (err) => {
-// 					console.error("File stream error:", err);
-// 					fs.unlink(zipPath).catch(console.error);
-// 					reject(err);
-// 				});
-// 			});
-
-// 			// Add directory to archive
-// 			archive.directory(projectDir, false);
-// 			archive.finalize();
-// 		});
-// 	} catch (err) {
-// 		console.error("Build failed:", err);
-// 		res.status(500).json({
-// 			error: "Unexpected build failure",
-// 			details: err.message,
-// 		});
-// 	}
-// });
-
-// app.post("/api/upload-chunk", upload.single("chunk"), async (req, res) => {
-// 	try {
-// 		const { fileKey, chunkIndex, chunkCount, projectId } = req.body;
-// 		const chunk = req.file.buffer;
-
-// 		// Initialize file assembly if first chunk
-// 		if (!fileAssemblyCache.has(fileKey)) {
-// 			fileAssemblyCache.set(fileKey, {
-// 				chunks: [],
-// 				received: 0,
-// 				projectId,
-// 			});
-// 		}
-
-// 		const fileAssembly = fileAssemblyCache.get(fileKey);
-// 		fileAssembly.chunks[chunkIndex] = chunk;
-// 		fileAssembly.received++;
-
-// 		// Check if all chunks received
-// 		if (fileAssembly.received === parseInt(chunkCount)) {
-// 			const filePath = path.join(BASE_STORAGE_DIR, fileKey);
-// 			await fs.mkdir(path.dirname(filePath), { recursive: true });
-
-// 			const writeStream = fsSync.createWriteStream(filePath);
-// 			for (const chunk of fileAssembly.chunks) {
-// 				writeStream.write(chunk);
-// 			}
-// 			writeStream.end();
-
-// 			fileAssemblyCache.delete(fileKey);
-// 		}
-
-// 		res.json({ success: true });
-// 	} catch (error) {
-// 		console.error("Chunk upload failed:", error);
-// 		res.status(500).json({ error: "Chunk processing failed" });
-// 	}
-// });
-
-// app.post("/api/finalize-file", async (req, res) => {
-// 	try {
-// 		const { fileKey, projectId } = req.body;
-// 		// Additional validation if needed
-// 		res.json({ success: true });
-// 	} catch (error) {
-// 		res.status(500).json({ error: "Finalization failed" });
-// 	}
-// });
 
 // Start server
 initializeStorage()
