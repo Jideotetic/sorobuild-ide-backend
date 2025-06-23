@@ -5,11 +5,17 @@ import { promisify } from "util";
 import { exec } from "child_process";
 import fs from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
 import helmet from "helmet";
 import multer from "multer";
 import JSZip from "jszip";
+import {
+	BASE_STORAGE_DIR,
+	initializeStorage,
+	__dirname,
+	getProjectPath,
+} from "./utils.js";
+import archiver from "archiver";
 
 const storage = multer.diskStorage({
 	destination: (_req, _file, cb) => {
@@ -21,11 +27,8 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT;
-const BASE_STORAGE_DIR = path.join(__dirname, "projects");
-const TEMP_DIR = path.join(__dirname, "temps");
+
 const execAsync = promisify(exec);
 const app = express();
 app.use(helmet());
@@ -48,7 +51,7 @@ app.post("/api/projects/create", async (req, res) => {
 	try {
 		const projectId = uuidv4();
 
-		console.log({ req: req.path, projectId });
+		console.log({ req: req.path });
 
 		if (req.body?.files && Object.keys(req.body.files).length > 0) {
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
@@ -62,7 +65,6 @@ app.post("/api/projects/create", async (req, res) => {
 			for (const [filename, content] of Object.entries(files)) {
 				const filePath = path.join(targetDir, filename);
 
-				console.log({ projectDir, targetDir, filePath });
 				await fs.writeFile(filePath, content);
 			}
 		}
@@ -78,8 +80,7 @@ app.post(
 	"/api/projects/:projectId/upload-zip",
 	upload.single("file"),
 	async (req, res) => {
-		console.log(req.path);
-
+		console.log({ req: req.path });
 		try {
 			try {
 				await fs.access(path.join(__dirname, "temps"));
@@ -89,56 +90,19 @@ app.post(
 			}
 			const projectId = req.params.projectId;
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
-			console.log({ projectId });
-			console.log({ projectDir });
 
-			// const actualPath = path.join("temps", path.basename(req.file.path, ".zip"));
-
-			// console.log(actualPath);
-
-			// try {
-			// 	await fsSync
-			// 		.createReadStream(req.file.path)
-			// 		.pipe(unzipper.Extract({ path: projectDir }))
-			// 		.promise();
-
-			// 	fsSync.unlinkSync(req.file.path);
-
-			// 	res.status(200).json({
-			// 		message: "Files uploaded and extracted successfully",
-			// 		actualPath,
-			// 	});
-			// } catch (err) {
-			// 	console.error(`Unzip Error: ${err.message}`);
-			// 	res.status(500).json({
-			// 		message: "Unzip failed",
-			// 		error: err.message,
-			// 	});
-			// }
-
-			// Read and extract zip
 			const zip = new JSZip();
 			const content = await fs.readFile(req.file.path);
-			console.log({ content });
 			const zipData = await zip.loadAsync(content);
-			console.log({ zipData });
 
 			await Promise.all(
 				Object.keys(zipData.files).map(async (relativePath) => {
 					const file = zipData.files[relativePath];
 					if (zipData.files[relativePath].dir) return;
 
-					console.log({ file });
-
-					// const fileContent = await zipData.files[relativePath].async("text");
-					// const absolutePath = path.join(projectDir, relativePath);
-
-					// await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-					// await fs.writeFile(absolutePath, fileContent);
 					const fileContent = await file.async("nodebuffer");
 					const absolutePath = path.join(projectDir, relativePath);
 
-					// Ensure parent directory exists
 					await fs.mkdir(path.dirname(absolutePath), { recursive: true });
 					await fs.writeFile(absolutePath, fileContent);
 				})
@@ -212,34 +176,46 @@ app.post(
 // 	}
 // });
 
-// app.get("/api/projects/:projectId/download", async (req, res) => {
-// 	try {
-// 		const projectId = req.params.projectId;
-// 		const projectDir = await getProjectPath(projectId);
+app.get("/api/projects/:projectId/download", async (req, res) => {
+	try {
+		console.log({ req: req.path });
+		const projectId = req.params.projectId;
+		const projectDir = await getProjectPath(projectId);
 
-// 		res.setHeader("Content-Type", "application/zip");
-// 		res.setHeader(
-// 			"Content-Disposition",
-// 			`attachment; filename="${projectId}.zip"`
-// 		);
+		if (!projectDir) {
+			return res.status(400).json({ error: "No project found" });
+		}
 
-// 		const archive = archiver("zip", { zlib: { level: 9 } });
+		const items = await fs.readdir(projectDir);
+		const [rootFolderName] = items;
 
-// 		archive.on("error", (err) => {
-// 			console.error("Archive error:", err);
-// 			res.status(500).end("Failed to create archive");
-// 		});
+		const targetDir = path.join(projectDir, rootFolderName);
 
-// 		// Pipe archive directly to response
-// 		archive.pipe(res);
+		res.setHeader("Content-Type", "application/zip");
+		res.setHeader(
+			"Content-Disposition",
+			`attachment; filename="${rootFolderName}.zip"`
+		);
 
-// 		archive.directory(projectDir, false);
-// 		await archive.finalize(); // Wait until archive is finished
-// 	} catch (error) {
-// 		console.error("Download failed:", error);
-// 		res.status(500).json({ error: "Download failed", details: error.message });
-// 	}
-// });
+		const archive = archiver("zip", { zlib: { level: 9 } });
+
+		archive.on("error", (err) => {
+			console.error("Archive error:", err);
+			res.status(500).end("Failed to create archive");
+		});
+
+		archive.directory(targetDir, rootFolderName);
+
+		// Pipe archive directly to response
+		archive.pipe(res);
+
+		// archive.directory(projectDir, false);
+		await archive.finalize(); // Wait until archive is finished
+	} catch (error) {
+		console.error("Download failed:", error);
+		res.status(500).json({ error: "Download failed", details: error.message });
+	}
+});
 
 // app.get("/api/projects/:projectId/files", async (req, res) => {
 // 	try {

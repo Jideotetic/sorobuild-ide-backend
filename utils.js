@@ -1,4 +1,12 @@
 import { spawn } from "child_process";
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+export const __dirname = path.dirname(__filename);
+export const BASE_STORAGE_DIR = path.join(__dirname, "projects");
+const TEMP_DIR = path.join(__dirname, "temps");
 
 export async function initializeStorage() {
 	await fs.mkdir(BASE_STORAGE_DIR, { recursive: true });
@@ -9,9 +17,9 @@ export function normalizePath(filePath) {
 	return filePath.replace(/\\/g, "/");
 }
 
-export async function getProjectPath(projectId, folderName) {
-	const projectPath = path.join(BASE_STORAGE_DIR, projectId, folderName);
-	await fs.mkdir(projectPath, { recursive: true });
+export async function getProjectPath(projectId) {
+	const projectPath = path.join(BASE_STORAGE_DIR, projectId);
+	// await fs.mkdir(projectPath, { recursive: true });
 	return projectPath;
 }
 
