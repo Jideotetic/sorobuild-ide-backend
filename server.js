@@ -353,6 +353,7 @@ import {
 	normalizePath,
 	compileSorobanContract,
 	runRustTests,
+	__filename,
 } from "./utils.js";
 import archiver from "archiver";
 import { WebSocketServer } from "ws";
@@ -379,7 +380,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-const PORT = process.env.PORT || 30001;
+const PORT = process.env.PORT || 3000;
 
 const app = express();
 app.use(helmet());

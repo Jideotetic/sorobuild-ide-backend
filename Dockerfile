@@ -41,5 +41,5 @@ RUN npm install
 # Copy remaining files
 COPY . .
 
-EXPOSE 4000
-CMD ["npx", "nodemon"]
+EXPOSE 3000
+CMD ["node", "server.js"]

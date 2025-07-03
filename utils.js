@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import { exec } from "child_process";
 import { promisify } from "util";
 
-const __filename = fileURLToPath(import.meta.url);
+export const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 export const BASE_STORAGE_DIR = path.join(__dirname, "projects");
 const TEMP_DIR = path.join(__dirname, "temps");
