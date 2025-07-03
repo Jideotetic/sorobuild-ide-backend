@@ -2,3 +2,7 @@ node_modules/
 projects/
 temps/
 .env
+
+# Added by cargo
+
+/target
