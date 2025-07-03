@@ -367,16 +367,6 @@ import {
 	forward,
 } from "vscode-ws-jsonrpc/server";
 import { createServer } from "http";
-import { dirname } from "node:path";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-process.on("uncaughtException", (err) => {
-	console.error("Uncaught Exception: ", err.toString());
-	if (err.stack) {
-		console.error(err.stack);
-	}
-});
 
 // Initialize multer for file uploads
 const storage = multer.diskStorage({
@@ -405,7 +395,7 @@ app.use(
 		allowedHeaders: ["*"],
 	})
 );
-app.use(express.json({ limit: "500mb" }));
+app.use(express.json({ limit: "1000mb" }));
 
 // Create HTTP server for both Express and WebSocket
 const server = createServer(app);
@@ -434,7 +424,7 @@ wss.on("error", (error) => {
 
 // Language Server Configuration
 const languageServerConfig = {
-	serverName: "RUST-ANALYZER",
+	serverName: "RUST ANALYZER WEB SOCKET SERVER",
 	pathName: "/rust-analyzer",
 	serverPort: PORT,
 	runCommand: "rust-analyzer",
@@ -499,17 +489,30 @@ const launchLanguageServer = (runconfig, socket) => {
 	if (serverConnection) {
 		forward(socketConnection, serverConnection, (message) => {
 			if (Message.isRequest(message)) {
+				console.log("To rust-analyzer:", message);
 				if (message.method === InitializeRequest.type.method) {
 					const initializeParams = message.params;
 					initializeParams.processId = process.pid;
 				}
 
-				if (runconfig.logMessages) {
+				if (runconfig.logMessages ?? false) {
 					console.log(`${serverName} Server received: ${message.method}`);
+					console.log(message);
+				}
+
+				if (runconfig.requestMessageHandler !== undefined) {
+					return runconfig.requestMessageHandler(message);
 				}
 			}
 			if (Message.isResponse(message) && runconfig.logMessages) {
-				console.log(`${serverName} Server sent response`);
+				console.log("FROM rust-analyzer:", message);
+				if (runconfig.logMessages ?? false) {
+					console.log(`${serverName} Server sent`);
+					console.log(message);
+				}
+				if (runconfig.responseMessageHandler !== undefined) {
+					return runconfig.responseMessageHandler(message);
+				}
 			}
 			return message;
 		});
@@ -543,15 +546,16 @@ app.post("/api/projects/create", async (req, res) => {
 				const projectName =
 					path.basename(filename, path.extname(filename)) || "my_project";
 
-				const cargoTomlContent = `[package]
-name = "${projectName}"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-`;
+				const cargoTomlContent = `
+				[package]
+                name = "${projectName}"
+                version = "0.1.0"
+                edition = "2021"
+                
+                # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+                
+                [dependencies]
+                `;
 				await fs.writeFile(cargoTomlPath, cargoTomlContent);
 			}
 		}
@@ -724,7 +728,7 @@ initializeStorage()
 			console.log(
 				`Language Server available on ws://localhost:${PORT}/rust-analyzer`
 			);
-			console.log(resolve(dirname(fileURLToPath(import.meta.url))));
+			console.log(__dirname);
 		});
 	})
 	.catch((err) => {

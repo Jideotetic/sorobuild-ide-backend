@@ -18,9 +18,6 @@ RUN apt-get update && apt-get install -y \
 RUN rustup component add rustfmt rust-analyzer && \
     rustup target add wasm32v1-none
 
-# Install exact Soroban CLI version from your local (22.8.1)
-# RUN cargo install soroban-cli --version 22.8.1 --locked
-
 # FAST INSTALL - Pre-built Soroban CLI
 RUN curl -sSL -o soroban.tar.gz https://github.com/stellar/soroban-cli/releases/download/v22.8.1/stellar-cli-22.8.1-x86_64-unknown-linux-gnu.tar.gz && \
     tar -xzf soroban.tar.gz && \
