@@ -724,6 +724,7 @@ initializeStorage()
 			console.log(
 				`Language Server available on ws://localhost:${PORT}/rust-analyzer`
 			);
+			console.log(resolve(dirname(fileURLToPath(import.meta.url))));
 		});
 	})
 	.catch((err) => {
