@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean
 
 # Install Rust components (matches your local)
-RUN rustup component add rustfmt rust-analyzer && \
+RUN rustup component add rustfmt rust-analyzer rust-src && \
     rustup target add wasm32v1-none
 
 # FAST INSTALL - Pre-built Soroban CLI
@@ -24,12 +24,6 @@ RUN curl -sSL -o soroban.tar.gz https://github.com/stellar/soroban-cli/releases/
     mv stellar /usr/local/bin/soroban && \
     chmod +x /usr/local/bin/soroban && \
     rm soroban.tar.gz
-
-
-# Verify versions (optional but recommended)
-RUN rustc --version && \
-    cargo --version && \
-    soroban version
 
 # Set working directory
 WORKDIR /app
