@@ -407,21 +407,21 @@ const wss = new WebSocketServer({
 	perMessageDeflate: false,
 });
 
-wss.on("connection", (ws) => {
-	console.log("New WebSocket connection established");
+// wss.on("connection", (ws) => {
+// 	console.log("New WebSocket connection established");
 
-	ws.on("error", (error) => {
-		console.error("WebSocket error:", error);
-	});
+// 	ws.on("error", (error) => {
+// 		console.error("WebSocket error:", error);
+// 	});
 
-	ws.on("close", () => {
-		console.log("WebSocket connection closed");
-	});
-});
+// 	ws.on("close", () => {
+// 		console.log("WebSocket connection closed");
+// 	});
+// });
 
-wss.on("error", (error) => {
-	console.error("WebSocket server error:", error);
-});
+// wss.on("error", (error) => {
+// 	console.error("WebSocket server error:", error);
+// });
 
 // Language Server Configuration
 const languageServerConfig = {
@@ -490,14 +490,14 @@ const launchLanguageServer = (runconfig, socket) => {
 	if (serverConnection) {
 		forward(socketConnection, serverConnection, (message) => {
 			if (Message.isRequest(message)) {
-				// console.log("To rust-analyzer:", message);
+				console.log("To rust-analyzer");
 				if (message.method === InitializeRequest.type.method) {
 					const initializeParams = message.params;
 					initializeParams.processId = process.pid;
 				}
 
 				if (runconfig.logMessages ?? false) {
-					// console.log(`${serverName} Server received: ${message.method}`);
+					console.log(`${serverName} Server received`);
 					// console.log(message);
 				}
 
@@ -506,9 +506,9 @@ const launchLanguageServer = (runconfig, socket) => {
 				}
 			}
 			if (Message.isResponse(message) && runconfig.logMessages) {
-				// console.log("FROM rust-analyzer:", message);
+				console.log("FROM rust-analyzer");
 				if (runconfig.logMessages ?? false) {
-					// console.log(`${serverName} Server sent`);
+					console.log(`${serverName} Server sent`);
 					// console.log(message);
 				}
 				if (runconfig.responseMessageHandler !== undefined) {
