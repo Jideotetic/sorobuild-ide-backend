@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean
 
 # Install Rust components (matches your local)
-RUN rustup component add rustfmt rust-analyzer && \
+RUN rustup component add rustfmt rust-analyzer rust-src && \
     rustup target add wasm32v1-none
 
 # FAST INSTALL - Pre-built Soroban CLI
