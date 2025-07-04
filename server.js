@@ -490,14 +490,14 @@ const launchLanguageServer = (runconfig, socket) => {
 	if (serverConnection) {
 		forward(socketConnection, serverConnection, (message) => {
 			if (Message.isRequest(message)) {
-				console.log("To rust-analyzer");
+				console.log("To rust-analyzer:", message);
 				if (message.method === InitializeRequest.type.method) {
 					const initializeParams = message.params;
 					initializeParams.processId = process.pid;
 				}
 
 				if (runconfig.logMessages ?? false) {
-					console.log(`${serverName} Server received`);
+					console.log(`${serverName} Server received: ${message.method}`);
 					// console.log(message);
 				}
 
@@ -506,7 +506,7 @@ const launchLanguageServer = (runconfig, socket) => {
 				}
 			}
 			if (Message.isResponse(message) && runconfig.logMessages) {
-				console.log("FROM rust-analyzer");
+				console.log("FROM rust-analyzer:", message);
 				if (runconfig.logMessages ?? false) {
 					console.log(`${serverName} Server sent`);
 					// console.log(message);
