@@ -430,7 +430,7 @@ const languageServerConfig = {
 	serverPort: PORT,
 	runCommand: "rust-analyzer",
 	runCommandArgs: [],
-	logMessages: true,
+	logMessages: false,
 };
 
 // Handle WebSocket upgrades for LSP
@@ -496,21 +496,21 @@ const launchLanguageServer = (runconfig, socket) => {
 					initializeParams.processId = process.pid;
 				}
 
-				if (runconfig.logMessages ?? false) {
-					console.log(`${serverName} Server received: ${message.method}`);
-					// console.log(message);
-				}
+				// if (runconfig.logMessages ?? false) {
+				// 	console.log(`${serverName} Server received: ${message.method}`);
+				// 	console.log(message);
+				// }
 
 				if (runconfig.requestMessageHandler !== undefined) {
 					return runconfig.requestMessageHandler(message);
 				}
 			}
-			if (Message.isResponse(message) && runconfig.logMessages) {
-				console.log("FROM rust-analyzer:", message);
-				if (runconfig.logMessages ?? false) {
-					console.log(`${serverName} Server sent`);
-					// console.log(message);
-				}
+			if (Message.isResponse(message)) {
+				// console.log("From rust-analyzer:", message);
+				// if (runconfig.logMessages ?? false) {
+				// 	console.log(`${serverName} Server sent`);
+				// 	console.log(message);
+				// }
 				if (runconfig.responseMessageHandler !== undefined) {
 					return runconfig.responseMessageHandler(message);
 				}
