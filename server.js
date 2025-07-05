@@ -368,6 +368,10 @@ import {
 	forward,
 } from "vscode-ws-jsonrpc/server";
 import { createServer } from "http";
+import { connectToMongoDB } from "./db.js";
+import { Project } from "./models/project.js";
+import { bucket } from "./db.js";
+import { Readable } from "stream";
 
 // Initialize multer for file uploads
 const storage = multer.diskStorage({
@@ -383,6 +387,7 @@ const upload = multer({ storage });
 const PORT = process.env.PORT || 3000;
 
 const app = express();
+await connectToMongoDB();
 app.use(helmet());
 app.use(
 	cors({
@@ -396,9 +401,9 @@ app.use(
 		allowedHeaders: ["*"],
 	})
 );
+
 app.use(express.json({ limit: "1000mb" }));
 
-// Create HTTP server for both Express and WebSocket
 const server = createServer(app);
 
 // Initialize WebSocket server for Language Server Protocol
@@ -407,23 +412,6 @@ const wss = new WebSocketServer({
 	perMessageDeflate: false,
 });
 
-// wss.on("connection", (ws) => {
-// 	console.log("New WebSocket connection established");
-
-// 	ws.on("error", (error) => {
-// 		console.error("WebSocket error:", error);
-// 	});
-
-// 	ws.on("close", () => {
-// 		console.log("WebSocket connection closed");
-// 	});
-// });
-
-// wss.on("error", (error) => {
-// 	console.error("WebSocket server error:", error);
-// });
-
-// Language Server Configuration
 const languageServerConfig = {
 	serverName: "RUST ANALYZER WEB SOCKET SERVER",
 	pathName: "/rust-analyzer",
@@ -521,92 +509,148 @@ const launchLanguageServer = (runconfig, socket) => {
 };
 
 // API Endpoints
-app.post("/api/projects/create", async (req, res) => {
-	try {
-		const projectId = uuidv4();
-		console.log({ req: req.path });
+// app.post("/api/projects/create", async (req, res) => {
+// 	try {
+// 		const projectId = uuidv4();
 
-		if (req.body?.files && Object.keys(req.body.files).length > 0) {
-			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
-			await fs.mkdir(projectDir, { recursive: true });
+// 		if (req.body?.files && Object.keys(req.body.files).length > 0) {
+// 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+// 			await fs.mkdir(projectDir, { recursive: true });
 
-			const { files, rootName = "New Folder" } = req.body;
-			const targetDir = path.join(projectDir, rootName);
-			await fs.mkdir(targetDir, { recursive: true });
+// 			const { files, rootName = "New Folder" } = req.body;
+// 			const targetDir = path.join(projectDir, rootName);
+// 			await fs.mkdir(targetDir, { recursive: true });
+// 		}
 
-			const isSingleFile = Object.keys(files).length === 1;
-			const [filename] = Object.keys(files);
-
-			for (const [filename, content] of Object.entries(files)) {
-				const filePath = path.join(targetDir, filename);
-				await fs.writeFile(filePath, content);
-			}
-
-			if (isSingleFile) {
-				const cargoTomlPath = path.join(targetDir, "Cargo.toml");
-				const projectName =
-					path.basename(filename, path.extname(filename)) || "my_project";
-
-				const cargoTomlContent = `
-				[package]
-                name = "${projectName}"
-                version = "0.1.0"
-                edition = "2021"
-                
-                # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-                
-                [dependencies]
-                `;
-				await fs.writeFile(cargoTomlPath, cargoTomlContent);
-			}
-		}
-
-		res.json({ projectId });
-	} catch (err) {
-		console.error("Project creation failed:", err);
-		res.status(500).json({ error: "Project creation failed" });
-	}
-});
+// 		res.json({ projectId });
+// 	} catch (err) {
+// 		console.error("Project creation failed:", err);
+// 		res.status(500).json({ error: "Project creation failed" });
+// 	}
+// });
 
 app.post(
-	"/api/projects/:projectId/upload-zip",
+	"/api/projects/upload-zip",
 	upload.single("file"),
 	async (req, res) => {
-		console.log({ req: req.path });
 		try {
-			try {
-				await fs.access(path.join(__dirname, "temps"));
-			} catch (err) {
-				console.error("Temp directory missing, recreating...");
-				await fs.mkdir(path.join(__dirname, "temps"), { recursive: true });
-			}
+			// try {
+			// 	await fs.access(path.join(__dirname, "temps"));
+			// } catch (err) {
+			// 	console.error("Temp directory missing, recreating...");
+			// 	await fs.mkdir(path.join(__dirname, "temps"), { recursive: true });
+			// }
 
-			const projectId = req.params.projectId;
-			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
-			const zip = new JSZip();
-			const content = await fs.readFile(req.file.path);
-			const zipData = await zip.loadAsync(content);
+			const projectId = uuidv4();
+			// const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+			// const zip = new JSZip();
+			// const content = await fs.readFile(req.file.path);
+			// const zipData = await zip.loadAsync(content);
 
-			await Promise.all(
-				Object.keys(zipData.files).map(async (relativePath) => {
-					const file = zipData.files[relativePath];
-					if (file.dir) return;
+			const fileBuffer = await fs.readFile(req.file.path);
 
-					const fileContent = await file.async("nodebuffer");
-					const absolutePath = path.join(projectDir, relativePath);
-					await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-					await fs.writeFile(absolutePath, fileContent);
-				})
-			);
+			const readableStream = new Readable();
+			readableStream.push(fileBuffer);
+			readableStream.push(null);
 
-			await fs.unlink(req.file.path);
-			res.json({ success: true });
+			const uploadStream = bucket.openUploadStream(`${projectId}.zip`);
+			readableStream.pipe(uploadStream);
+
+			uploadStream.on("finish", async () => {
+				await fs.unlink(req.file.path);
+
+				const saved = await Project.create({
+					projectId,
+					zipFileId: uploadStream.id, // Store GridFS file ID
+					size: fileBuffer.length,
+				});
+
+				console.log("ZIP stored:", saved);
+				res.json({ projectId });
+			});
+
+			// const extractedFiles = [];
+
+			// await Promise.all(
+			// 	Object.keys(zipData.files).map(async (relativePath) => {
+			// 		const file = zipData.files[relativePath];
+			// 		if (file.dir) return;
+
+			// 		const fileContent = await file.async("nodebuffer");
+
+			// 		// const readableStream = new Readable();
+			// 		// readableStream.push(fileContent);
+			// 		// readableStream.push(null);
+
+			// 		// const uploadStream = bucket.openUploadStream(relativePath);
+			// 		// const uploadPromise = new Promise((resolve, reject) => {
+			// 		// 	uploadStream.on("finish", () => {
+			// 		// 		extractedFiles.push({
+			// 		// 			path: relativePath,
+			// 		// 			fileId: uploadStream.id,
+			// 		// 		});
+			// 		// 		resolve();
+			// 		// 	});
+			// 		// 	uploadStream.on("error", reject);
+			// 		// });
+
+			// 		// readableStream.pipe(uploadStream);
+			// 		// await uploadPromise;
+
+			// 		// extractedFiles.push({
+			// 		// 	path: relativePath,
+			// 		// 	fileId: uploadStream.id,
+			// 		// });
+
+			// 		const absolutePath = path.join(projectDir, relativePath);
+			// 		await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+			// 		await fs.writeFile(absolutePath, fileContent);
+			// 	})
+			// );
+
+			// await fs.unlink(req.file.path);
+
+			// const saved = await Project.create({
+			// 	projectId,
+			// 	files: extractedFiles,
+			// 	size: content.length,
+			// });
+
+			// console.log(saved);
+
+			// res.json({ projectId });
+
+			uploadStream.on("error", (err) => {
+				console.error("Upload failed:", err);
+				res.status(500).json({ error: "Failed to store ZIP in DB" });
+			});
 		} catch (err) {
 			console.error("Zip extraction failed:", err);
 			res.status(500).json({ error: "Failed to process zip file" });
 		}
 	}
 );
+
+app.get("/api/projects/:projectId/load", async (req, res) => {
+	try {
+		const project = await Project.findOne({ projectId: req.params.projectId });
+		if (!project || !project.zipFileId) {
+			return res.status(404).json({ error: "ZIP file not found" });
+		}
+
+		const downloadStream = bucket.openDownloadStream(project.zipFileId);
+
+		res.set({
+			"Content-Type": "application/zip",
+			"Content-Disposition": `attachment; filename="${project.projectId}.zip"`,
+		});
+
+		downloadStream.pipe(res);
+	} catch (err) {
+		console.error("Download failed:", err);
+		res.status(500).json({ error: "Failed to download project ZIP" });
+	}
+});
 
 app.get("/api/projects/:projectId/download", async (req, res) => {
 	try {
@@ -724,7 +768,7 @@ app.use((err, _req, res, _next) => {
 // Initialize and start the server
 initializeStorage()
 	.then(() => {
-		server.listen(PORT, () => {
+		server.listen(PORT, "0.0.0.0", () => {
 			console.log(`Server running on http://localhost:${PORT}`);
 			console.log(
 				`Language Server available on ws://localhost:${PORT}/rust-analyzer`
