@@ -355,7 +355,6 @@ import {
 	runRustTests,
 	__filename,
 } from "./utils.js";
-import archiver from "archiver";
 import { WebSocketServer } from "ws";
 import { Message, InitializeRequest } from "vscode-languageserver-protocol";
 import {
@@ -382,7 +381,9 @@ const storage = multer.diskStorage({
 		cb(null, file.originalname);
 	},
 });
-const upload = multer({ storage });
+const upload = multer({
+	storage,
+});
 
 const PORT = process.env.PORT || 3000;
 
@@ -538,7 +539,7 @@ app.post(
 
 			const fileBuffer = await fs.readFile(req.file.path);
 
-			console.log({ projectId });
+			console.log({ projectId, fileBuffer, req: req.file.path });
 
 			const readableStream = new Readable();
 			readableStream.push(fileBuffer);
@@ -655,8 +656,11 @@ app.post(
 			const projectId = req.params.projectId;
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 
-			if (fs.existsSync(projectDir)) {
+			try {
+				await fs.access(projectDir); // If directory exists, this will succeed
 				await fs.rm(projectDir, { recursive: true, force: true });
+			} catch (err) {
+				// Directory doesn't exist, no need to delete
 			}
 
 			const zip = new JSZip();
