@@ -536,6 +536,8 @@ app.post(
 		try {
 			const projectId = uuidv4();
 
+			console.log(projectId);
+
 			const fileBuffer = await fs.readFile(req.file.path);
 
 			const readableStream = new Readable();
