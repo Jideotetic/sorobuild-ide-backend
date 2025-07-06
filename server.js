@@ -713,17 +713,55 @@ app.post(
 	}
 );
 
-// app.post("/api/projects/:projectId/test", async (req, res) => {
-// 	try {
-// 		const testResults = await runRustTests(req.params.projectId);
-// 		res.json(testResults);
-// 	} catch (err) {
-// 		console.error("Testing failed:", err);
-// 		res.status(500).json({ error: "Testing failed" });
-// 	}
-// });
+app.post(
+	"/api/projects/:projectId/test",
+	upload.single("file"),
+	async (req, res) => {
+		try {
+			try {
+				await fs.access(path.join(__dirname, "temps"));
+			} catch (err) {
+				console.error("Temp directory missing, recreating...");
+				await fs.mkdir(path.join(__dirname, "temps"), { recursive: true });
+			}
 
-// Error handling middleware
+			const projectId = req.params.projectId;
+			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+
+			try {
+				await fs.access(projectDir); // If directory exists, this will succeed
+				await fs.rm(projectDir, { recursive: true, force: true });
+			} catch (err) {
+				// Directory doesn't exist, no need to delete
+			}
+
+			const zip = new JSZip();
+			const content = await fs.readFile(req.file.path);
+			const zipData = await zip.loadAsync(content);
+
+			await Promise.all(
+				Object.keys(zipData.files).map(async (relativePath) => {
+					const file = zipData.files[relativePath];
+					if (file.dir) return;
+
+					const fileContent = await file.async("nodebuffer");
+
+					const absolutePath = path.join(projectDir, relativePath);
+					await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+					await fs.writeFile(absolutePath, fileContent);
+				})
+			);
+
+			await fs.unlink(req.file.path);
+
+			const testResults = await runRustTests(req.params.projectId);
+			res.json(testResults);
+		} catch (err) {
+			console.error("Testing failed:", err);
+			res.status(500).json({ error: "Testing failed" });
+		}
+	}
+);
 
 app.use((err, _req, res, _next) => {
 	console.error("Unhandled error:", err);
