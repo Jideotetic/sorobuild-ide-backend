@@ -22,6 +22,8 @@
 		"express-rate-limit": "^7.5.0",
 		"helmet": "^8.1.0",
 		"jszip": "^3.10.1",
+		"mongodb": "^6.17.0",
+		"mongoose": "^8.16.1",
 		"multer": "^2.0.1",
 		"p-queue": "^8.1.0",
 		"unzipper": "^0.12.3",

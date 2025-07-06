@@ -25,12 +25,6 @@ RUN curl -sSL -o soroban.tar.gz https://github.com/stellar/soroban-cli/releases/
     chmod +x /usr/local/bin/soroban && \
     rm soroban.tar.gz
 
-
-# Verify versions (optional but recommended)
-RUN rustc --version && \
-    cargo --version && \
-    soroban version
-
 # Set working directory
 WORKDIR /app
 
