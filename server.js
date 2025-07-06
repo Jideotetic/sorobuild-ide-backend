@@ -402,7 +402,7 @@ app.use(
 	})
 );
 
-app.use(express.json({ limit: "1000mb" }));
+app.use(express.json({ limit: "750mb" }));
 
 const server = createServer(app);
 
@@ -536,9 +536,9 @@ app.post(
 		try {
 			const projectId = uuidv4();
 
-			console.log(projectId);
-
 			const fileBuffer = await fs.readFile(req.file.path);
+
+			console.log({ projectId });
 
 			const readableStream = new Readable();
 			readableStream.push(fileBuffer);
@@ -552,11 +552,11 @@ app.post(
 
 				const saved = await Project.create({
 					projectId,
-					zipFileId: uploadStream.id, // Store GridFS file ID
+					zipFileId: uploadStream.id,
 					size: fileBuffer.length,
 				});
 
-				console.log("ZIP stored:", saved);
+				console.log("ZIP saved:", saved);
 				res.json({ projectId });
 			});
 
@@ -575,7 +575,7 @@ app.get("/api/projects/:projectId/load", async (req, res) => {
 	try {
 		const project = await Project.findOne({ projectId: req.params.projectId });
 		if (!project || !project.zipFileId) {
-			return res.status(404).json({ error: "ZIP file not found" });
+			return res.status(404).json({ error: "Project not found" });
 		}
 
 		const downloadStream = bucket.openDownloadStream(project.zipFileId);
