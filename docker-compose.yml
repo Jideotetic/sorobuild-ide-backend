@@ -9,3 +9,4 @@ services:
       - ./temps:/app/temps
     environment:
       - NODE_ENV=development
+    restart: always
