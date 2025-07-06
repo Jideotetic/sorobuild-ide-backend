@@ -534,18 +534,7 @@ app.post(
 	upload.single("file"),
 	async (req, res) => {
 		try {
-			// try {
-			// 	await fs.access(path.join(__dirname, "temps"));
-			// } catch (err) {
-			// 	console.error("Temp directory missing, recreating...");
-			// 	await fs.mkdir(path.join(__dirname, "temps"), { recursive: true });
-			// }
-
 			const projectId = uuidv4();
-			// const projectDir = path.join(BASE_STORAGE_DIR, projectId);
-			// const zip = new JSZip();
-			// const content = await fs.readFile(req.file.path);
-			// const zipData = await zip.loadAsync(content);
 
 			const fileBuffer = await fs.readFile(req.file.path);
 
@@ -568,57 +557,6 @@ app.post(
 				console.log("ZIP stored:", saved);
 				res.json({ projectId });
 			});
-
-			// const extractedFiles = [];
-
-			// await Promise.all(
-			// 	Object.keys(zipData.files).map(async (relativePath) => {
-			// 		const file = zipData.files[relativePath];
-			// 		if (file.dir) return;
-
-			// 		const fileContent = await file.async("nodebuffer");
-
-			// 		// const readableStream = new Readable();
-			// 		// readableStream.push(fileContent);
-			// 		// readableStream.push(null);
-
-			// 		// const uploadStream = bucket.openUploadStream(relativePath);
-			// 		// const uploadPromise = new Promise((resolve, reject) => {
-			// 		// 	uploadStream.on("finish", () => {
-			// 		// 		extractedFiles.push({
-			// 		// 			path: relativePath,
-			// 		// 			fileId: uploadStream.id,
-			// 		// 		});
-			// 		// 		resolve();
-			// 		// 	});
-			// 		// 	uploadStream.on("error", reject);
-			// 		// });
-
-			// 		// readableStream.pipe(uploadStream);
-			// 		// await uploadPromise;
-
-			// 		// extractedFiles.push({
-			// 		// 	path: relativePath,
-			// 		// 	fileId: uploadStream.id,
-			// 		// });
-
-			// 		const absolutePath = path.join(projectDir, relativePath);
-			// 		await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-			// 		await fs.writeFile(absolutePath, fileContent);
-			// 	})
-			// );
-
-			// await fs.unlink(req.file.path);
-
-			// const saved = await Project.create({
-			// 	projectId,
-			// 	files: extractedFiles,
-			// 	size: content.length,
-			// });
-
-			// console.log(saved);
-
-			// res.json({ projectId });
 
 			uploadStream.on("error", (err) => {
 				console.error("Upload failed:", err);
@@ -652,114 +590,130 @@ app.get("/api/projects/:projectId/load", async (req, res) => {
 	}
 });
 
-app.get("/api/projects/:projectId/download", async (req, res) => {
-	try {
-		console.log({ req: req.path });
-		const projectId = req.params.projectId;
-		const projectDir = await getProjectPath(projectId);
-
-		if (!projectDir) {
-			return res.status(400).json({ error: "No project found" });
-		}
-
-		const items = await fs.readdir(projectDir);
-		const [rootFolderName] = items;
-		const targetDir = path.join(projectDir, rootFolderName);
-
-		res.setHeader("Content-Type", "application/zip");
-		res.setHeader(
-			"Content-Disposition",
-			`attachment; filename="${rootFolderName}.zip"`
-		);
-
-		const archive = archiver("zip", { zlib: { level: 9 } });
-		archive.on("error", (err) => {
-			console.error("Archive error:", err);
-			res.status(500).end("Failed to create archive");
-		});
-
-		archive.directory(targetDir, rootFolderName);
-		archive.pipe(res);
-		await archive.finalize();
-	} catch (error) {
-		console.error("Download failed:", error);
-		res.status(500).json({ error: "Download failed", details: error.message });
-	}
-});
-
 app.put("/api/projects/:projectId/save", async (req, res) => {
 	try {
-		const { path: filePath, content } = req.body;
-		console.log(filePath);
+		const { content } = req.body;
 
 		let finalContent = await formatRustCode(content);
-		await saveProjectFile(
-			req.params.projectId,
-			normalizePath(filePath),
-			finalContent
-		);
-		res.json({ success: true, content: finalContent });
+
+		res.json({ content: finalContent });
 	} catch (err) {
 		console.error("Failed to update file:", err);
 		res.status(500).json({ error: "Failed to update file" });
 	}
 });
 
-app.post("/api/projects/:projectId/build", async (req, res) => {
-	try {
-		console.log({ req: req.path });
-		const projectId = req.params.projectId;
-		const projectDir = await getProjectPath(projectId);
-		const result = await compileSorobanContract(projectId);
+// app.get("/api/projects/:projectId/download", async (req, res) => {
+// 	try {
+// 		console.log({ req: req.path });
+// 		const projectId = req.params.projectId;
+// 		const projectDir = await getProjectPath(projectId);
 
-		const items = await fs.readdir(projectDir);
-		const [rootFolderName] = items;
-		const targetDir = path.join(projectDir, rootFolderName);
+// 		if (!projectDir) {
+// 			return res.status(400).json({ error: "No project found" });
+// 		}
 
-		if (!result.success) {
-			return res.status(400).json({
-				status: "error",
-				error: result.error,
+// 		const items = await fs.readdir(projectDir);
+// 		const [rootFolderName] = items;
+// 		const targetDir = path.join(projectDir, rootFolderName);
+
+// 		res.setHeader("Content-Type", "application/zip");
+// 		res.setHeader(
+// 			"Content-Disposition",
+// 			`attachment; filename="${rootFolderName}.zip"`
+// 		);
+
+// 		const archive = archiver("zip", { zlib: { level: 9 } });
+// 		archive.on("error", (err) => {
+// 			console.error("Archive error:", err);
+// 			res.status(500).end("Failed to create archive");
+// 		});
+
+// 		archive.directory(targetDir, rootFolderName);
+// 		archive.pipe(res);
+// 		await archive.finalize();
+// 	} catch (error) {
+// 		console.error("Download failed:", error);
+// 		res.status(500).json({ error: "Download failed", details: error.message });
+// 	}
+// });
+
+app.post(
+	"/api/projects/:projectId/build",
+	upload.single("file"),
+	async (req, res) => {
+		try {
+			try {
+				await fs.access(path.join(__dirname, "temps"));
+			} catch (err) {
+				console.error("Temp directory missing, recreating...");
+				await fs.mkdir(path.join(__dirname, "temps"), { recursive: true });
+			}
+
+			const projectId = req.params.projectId;
+			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+			const zip = new JSZip();
+			const content = await fs.readFile(req.file.path);
+			const zipData = await zip.loadAsync(content);
+
+			await Promise.all(
+				Object.keys(zipData.files).map(async (relativePath) => {
+					const file = zipData.files[relativePath];
+					if (file.dir) return;
+
+					const fileContent = await file.async("nodebuffer");
+
+					const absolutePath = path.join(projectDir, relativePath);
+					await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+					await fs.writeFile(absolutePath, fileContent);
+				})
+			);
+
+			await fs.unlink(req.file.path);
+
+			const result = await compileSorobanContract(projectId);
+
+			const items = await fs.readdir(projectDir);
+			const [rootFolderName] = items;
+			const targetDir = path.join(projectDir, rootFolderName);
+
+			if (!result.success) {
+				return res.status(400).json({
+					status: "error",
+					error: result.error,
+					output: result.output,
+					code: result.code,
+				});
+			}
+
+			return res.json({
+				success: true,
 				output: result.output,
-				code: result.code,
+				message: "Build completed successfully",
+			});
+		} catch (err) {
+			console.error("Build failed:", err);
+			return res.status(500).json({
+				success: false,
+				error: "Unexpected build failure",
+				details: err.message,
 			});
 		}
-
-		res.setHeader("Content-Type", "application/zip");
-		res.setHeader(
-			"Content-Disposition",
-			`attachment; filename="${rootFolderName}.zip"`
-		);
-
-		const archive = archiver("zip", { zlib: { level: 9 } });
-		archive.on("error", (err) => {
-			console.error("Archive error:", err);
-			res.status(500).end("Failed to create archive");
-		});
-
-		archive.directory(targetDir, rootFolderName);
-		archive.pipe(res);
-		await archive.finalize();
-	} catch (err) {
-		console.error("Build failed:", err);
-		res.status(500).json({
-			error: "Unexpected build failure",
-			details: err.message,
-		});
 	}
-});
+);
 
-app.post("/api/projects/:projectId/test", async (req, res) => {
-	try {
-		const testResults = await runRustTests(req.params.projectId);
-		res.json(testResults);
-	} catch (err) {
-		console.error("Testing failed:", err);
-		res.status(500).json({ error: "Testing failed" });
-	}
-});
+// app.post("/api/projects/:projectId/test", async (req, res) => {
+// 	try {
+// 		const testResults = await runRustTests(req.params.projectId);
+// 		res.json(testResults);
+// 	} catch (err) {
+// 		console.error("Testing failed:", err);
+// 		res.status(500).json({ error: "Testing failed" });
+// 	}
+// });
 
 // Error handling middleware
+
 app.use((err, _req, res, _next) => {
 	console.error("Unhandled error:", err);
 	res.status(500).json({ error: "Internal Server Error" });
