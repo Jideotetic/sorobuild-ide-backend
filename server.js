@@ -654,6 +654,11 @@ app.post(
 
 			const projectId = req.params.projectId;
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+
+			if (fs.existsSync(projectDir)) {
+				await fs.rm(projectDir, { recursive: true, force: true });
+			}
+
 			const zip = new JSZip();
 			const content = await fs.readFile(req.file.path);
 			const zipData = await zip.loadAsync(content);
