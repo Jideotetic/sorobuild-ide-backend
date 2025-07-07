@@ -58,7 +58,7 @@ app.use(
 			"http://127.0.0.1:5173",
 			"https://rust-ide-five.vercel.app",
 		],
-		methods: ["GET", "POST", "PUT", "OPTIONS"],
+		methods: ["GET", "POST", "PUT"],
 		credentials: true,
 		allowedHeaders: ["*"],
 	})
@@ -448,6 +448,30 @@ app.post(
 		}
 	}
 );
+
+app.post("/api/projects/:projectId/delete", async (req, res) => {
+	try {
+		const { projectId } = req.params;
+		const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+
+		// Check if the directory exists and delete it
+		try {
+			await fs.access(projectDir);
+			await fs.rm(projectDir, { recursive: true, force: true });
+			console.log(`Deleted folder for project ${projectId}`);
+		} catch (err) {
+			console.warn(
+				`No folder to delete for project ${projectId}:`,
+				err.message
+			);
+		}
+
+		return res.json({ success: true, message: "Project folder deleted" });
+	} catch (err) {
+		console.error("Failed to delete folder:", err);
+		res.status(500).json({ error: "Failed to delete folder" });
+	}
+});
 
 app.use((err, _req, res, _next) => {
 	console.error("Unhandled error:", err);
