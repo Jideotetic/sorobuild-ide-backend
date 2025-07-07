@@ -572,6 +572,61 @@ app.post(
 	}
 );
 
+app.post(
+	"/api/projects/:projectId/update",
+	upload.single("file"),
+	async (req, res) => {
+		const { projectId } = req.params;
+
+		try {
+			const project = await Project.findOne({ projectId });
+
+			if (!project) {
+				return res.status(404).json({ error: "Project not found" });
+			}
+
+			const fileBuffer = await fs.readFile(req.file.path);
+			const readableStream = new Readable();
+			readableStream.push(fileBuffer);
+			readableStream.push(null);
+
+			// 1. Delete old file from GridFS (if exists)
+			if (project.zipFileId) {
+				try {
+					await bucket.delete(project.zipFileId);
+				} catch (err) {
+					console.warn("Failed to delete old zip file:", err.message);
+					// Don't block the process if deletion fails
+				}
+			}
+
+			// 2. Upload new file to GridFS
+			const uploadStream = bucket.openUploadStream(`${projectId}.zip`);
+			readableStream.pipe(uploadStream);
+
+			uploadStream.on("finish", async () => {
+				await fs.unlink(req.file.path);
+
+				// 3. Update Project doc
+				project.zipFileId = uploadStream.id;
+				project.size = fileBuffer.length;
+				await project.save();
+
+				console.log("Project updated:", project);
+				res.json({ success: true });
+			});
+
+			uploadStream.on("error", (err) => {
+				console.error("Upload failed:", err);
+				res.status(500).json({ error: "Failed to store new ZIP" });
+			});
+		} catch (err) {
+			console.error("Error uploading zip:", err);
+			res.status(500).json({ error: "Internal server error" });
+		}
+	}
+);
+
 app.get("/api/projects/:projectId/load", async (req, res) => {
 	try {
 		const project = await Project.findOne({ projectId: req.params.projectId });
