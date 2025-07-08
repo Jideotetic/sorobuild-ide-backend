@@ -6,6 +6,8 @@ import { fileURLToPath } from "url";
 import { exec } from "child_process";
 import { promisify } from "util";
 import unzipper from "unzipper";
+import { Project } from "./models/project.js";
+import { bucket } from "./models/db.js";
 
 export const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
@@ -23,39 +25,35 @@ export async function getProjectPath(projectId) {
 	return projectPath;
 }
 
-export async function formatRustCode(code) {
-	return new Promise((resolve) => {
-		const child = spawn("rustfmt", ["--emit", "stdout", "--edition", "2021"]);
+export async function formatRustCode(projectId) {
+	try {
+		const projectDir = await getProjectPath(projectId);
 
-		let stdout = "";
-		let stderr = "";
+		const items = await fsp.readdir(projectDir);
+		const [rootFolderName] = items;
 
-		child.stdout.on("data", (data) => {
-			stdout += data.toString();
+		const targetDir = path.join(projectDir, rootFolderName);
+
+		console.log({ projectDir, items, rootFolderName, targetDir });
+
+		const { stdout, stderr } = await execAsync("cargo fmt", {
+			cwd: targetDir,
+			timeout: 1_200_000,
+			maxBuffer: 100 * 1024 * 1024,
 		});
 
-		child.stderr.on("data", (data) => {
-			stderr += data.toString();
-		});
-
-		child.on("error", (err) => {
-			console.error("rustfmt error:", err);
-			resolve(code); // Return original code
-		});
-
-		child.on("close", (codeExit, signal) => {
-			if (codeExit === 0 && !stderr.trim()) {
-				resolve(stdout);
-			} else {
-				console.error("rustfmt failed:", { codeExit, signal, stderr });
-				resolve(code); // Return original if formatting fails
-			}
-		});
-
-		// Write code to rustfmt's stdin
-		child.stdin.write(code);
-		child.stdin.end();
-	});
+		return {
+			success: true,
+			output: stdout + stderr,
+		};
+	} catch (error) {
+		console.log("Format failed", error);
+		const output = error.stdout + error.stderr;
+		return {
+			success: false,
+			output,
+		};
+	}
 }
 
 export async function runTests(projectId) {
@@ -159,5 +157,39 @@ export async function unzipProject(filePath, projectDir) {
 				}
 			})
 			.on("error", reject);
+	});
+}
+
+export async function updateDBCopy(req) {
+	const projectId = req.params.projectId;
+	const filePath = req.file.path;
+
+	console.log({ projectId, filePath, req: req.url });
+
+	const project = await Project.findOne({ projectId });
+
+	if (project.zipFileId) {
+		try {
+			await bucket.delete(project.zipFileId);
+			console.log("✅ Deleted old zip file");
+		} catch (err) {
+			console.log("❌ Failed to delete old zip file:", err);
+		}
+	}
+
+	const uploadStream = bucket.openUploadStream(`${projectId}.zip`);
+	const fileReadStream = fs.createReadStream(filePath);
+	fileReadStream.pipe(uploadStream);
+
+	await new Promise((resolve, reject) => {
+		uploadStream.on("finish", async () => {
+			const stats = await fs.promises.stat(filePath);
+			project.zipFileId = uploadStream.id;
+			project.size = stats.size;
+			await project.save();
+			console.log("✅ DB updated with new zip file");
+			resolve();
+		});
+		uploadStream.on("error", reject);
 	});
 }

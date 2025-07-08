@@ -17,6 +17,7 @@ import {
 	runTests,
 	__filename,
 	unzipProject,
+	updateDBCopy,
 } from "./utils.js";
 import { WebSocketServer } from "ws";
 import { Message, InitializeRequest } from "vscode-languageserver-protocol";
@@ -34,6 +35,7 @@ import { connectToMongoDB } from "./models/db.js";
 import { Project } from "./models/project.js";
 import { bucket } from "./models/db.js";
 import { Readable } from "stream";
+import archiver from "archiver";
 
 // Connect to MongoDB
 await connectToMongoDB();
@@ -284,18 +286,60 @@ app.get("/api/projects/:projectId/load", async (req, res) => {
 	}
 });
 
-app.put("/api/projects/:projectId/save", async (req, res) => {
-	try {
-		const { content } = req.body;
+app.post(
+	"/api/projects/:projectId/format",
+	upload.single("file"),
+	async (req, res) => {
+		try {
+			const projectId = req.params.projectId;
+			const filePath = req.file.path;
 
-		let finalContent = await formatRustCode(content);
+			await updateDBCopy(req);
 
-		res.json({ content: finalContent });
-	} catch (err) {
-		console.error("Failed to update file:", err);
-		res.status(500).json({ error: "Failed to update file" });
+			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+
+			try {
+				await fsp.access(projectDir);
+				await fsp.rm(projectDir, { recursive: true, force: true });
+				console.log(`Formatting project now...`);
+			} catch (err) {
+				console.log(`Formatting project now...`, err);
+			}
+
+			await unzipProject(filePath, projectDir);
+
+			const { content } = req.body;
+
+			const { success, output } = await formatRustCode(projectId);
+
+			if (!success) {
+				return res.status(400).json({
+					success,
+					output,
+				});
+			}
+
+			const archive = archiver("zip", { zlib: { level: 9 } });
+
+			const zipFileName = `${projectId}-formatted.zip`;
+			res.setHeader(
+				"Content-Disposition",
+				`attachment; filename="${zipFileName}"`
+			);
+			res.setHeader("Content-Type", "application/zip");
+
+			archive.pipe(res);
+			archive.directory(projectDir, false);
+			archive.finalize();
+		} catch (err) {
+			console.error("Format failed:", err);
+			return res.status(500).json({
+				success: false,
+				output: err,
+			});
+		}
 	}
-});
+);
 
 app.post(
 	"/api/projects/:projectId/build",
@@ -305,34 +349,7 @@ app.post(
 			const projectId = req.params.projectId;
 			const filePath = req.file.path;
 
-			console.log({ projectId, filePath, req: req.url });
-
-			const project = await Project.findOne({ projectId });
-
-			if (project.zipFileId) {
-				try {
-					await bucket.delete(project.zipFileId);
-					console.log("✅ Deleted old zip file");
-				} catch (err) {
-					console.log("❌ Failed to delete old zip file:", err);
-				}
-			}
-
-			const uploadStream = bucket.openUploadStream(`${projectId}.zip`);
-			const fileReadStream = fs.createReadStream(filePath);
-			fileReadStream.pipe(uploadStream);
-
-			await new Promise((resolve, reject) => {
-				uploadStream.on("finish", async () => {
-					const stats = await fs.promises.stat(filePath);
-					project.zipFileId = uploadStream.id;
-					project.size = stats.size;
-					await project.save();
-					console.log("✅ DB updated with new zip file");
-					resolve();
-				});
-				uploadStream.on("error", reject);
-			});
+			await updateDBCopy(req);
 
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 
