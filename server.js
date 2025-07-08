@@ -1,7 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import fs from "fs/promises";
+import fs from "fs";
+import fsp from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import helmet from "helmet";
@@ -12,9 +13,10 @@ import {
 	initializeStorage,
 	__dirname,
 	formatRustCode,
-	compileSorobanContract,
-	runRustTests,
+	buildSorobanContract,
+	runTests,
 	__filename,
+	unzipProject,
 } from "./utils.js";
 import { WebSocketServer } from "ws";
 import { Message, InitializeRequest } from "vscode-languageserver-protocol";
@@ -28,10 +30,15 @@ import {
 	forward,
 } from "vscode-ws-jsonrpc/server";
 import { createServer } from "http";
-import { connectToMongoDB } from "./db.js";
+import { connectToMongoDB } from "./models/db.js";
 import { Project } from "./models/project.js";
-import { bucket } from "./db.js";
+import { bucket } from "./models/db.js";
 import { Readable } from "stream";
+
+// Connect to MongoDB
+await connectToMongoDB();
+
+const PORT = process.env.PORT;
 
 // Initialize multer for file uploads
 const storage = multer.diskStorage({
@@ -46,10 +53,7 @@ const upload = multer({
 	storage,
 });
 
-const PORT = process.env.PORT || 3000;
-
 const app = express();
-await connectToMongoDB();
 app.use(helmet());
 app.use(
 	cors({
@@ -74,6 +78,7 @@ const wss = new WebSocketServer({
 	perMessageDeflate: false,
 });
 
+// Language Server Configuration
 const languageServerConfig = {
 	serverName: "RUST ANALYZER WEB SOCKET SERVER",
 	pathName: "/rust-analyzer",
@@ -146,21 +151,11 @@ const launchLanguageServer = (runconfig, socket) => {
 					initializeParams.processId = process.pid;
 				}
 
-				// if (runconfig.logMessages ?? false) {
-				// 	console.log(`${serverName} Server received: ${message.method}`);
-				// 	console.log(message);
-				// }
-
 				if (runconfig.requestMessageHandler !== undefined) {
 					return runconfig.requestMessageHandler(message);
 				}
 			}
 			if (Message.isResponse(message)) {
-				// console.log("From rust-analyzer:", message);
-				// if (runconfig.logMessages ?? false) {
-				// 	console.log(`${serverName} Server sent`);
-				// 	console.log(message);
-				// }
 				if (runconfig.responseMessageHandler !== undefined) {
 					return runconfig.responseMessageHandler(message);
 				}
@@ -179,7 +174,7 @@ app.post(
 		try {
 			const projectId = uuidv4();
 
-			const fileBuffer = await fs.readFile(req.file.path);
+			const fileBuffer = await fsp.readFile(req.file.path);
 
 			console.log({ projectId, fileBuffer, req: req.file.path });
 
@@ -191,7 +186,7 @@ app.post(
 			readableStream.pipe(uploadStream);
 
 			uploadStream.on("finish", async () => {
-				await fs.unlink(req.file.path);
+				await fsp.unlink(req.file.path);
 
 				const saved = await Project.create({
 					projectId,
@@ -227,7 +222,7 @@ app.post(
 				return res.status(404).json({ error: "Project not found" });
 			}
 
-			const fileBuffer = await fs.readFile(req.file.path);
+			const fileBuffer = await fsp.readFile(req.file.path);
 			const readableStream = new Readable();
 			readableStream.push(fileBuffer);
 			readableStream.push(null);
@@ -246,7 +241,7 @@ app.post(
 			readableStream.pipe(uploadStream);
 
 			uploadStream.on("finish", async () => {
-				await fs.unlink(req.file.path);
+				await fsp.unlink(req.file.path);
 
 				// 3. Update Project doc
 				project.zipFileId = uploadStream.id;
@@ -307,93 +302,68 @@ app.post(
 	upload.single("file"),
 	async (req, res) => {
 		try {
-			try {
-				await fs.access(path.join(__dirname, "temps"));
-			} catch (err) {
-				console.error("Temp directory missing, recreating...");
-				await fs.mkdir(path.join(__dirname, "temps"), { recursive: true });
-			}
-
 			const projectId = req.params.projectId;
+			const filePath = req.file.path;
+
+			console.log({ projectId, filePath, req: req.url });
 
 			const project = await Project.findOne({ projectId });
-
-			const fileBuffer = await fs.readFile(req.file.path);
-			const readableStream = new Readable();
-			readableStream.push(fileBuffer);
-			readableStream.push(null);
 
 			if (project.zipFileId) {
 				try {
 					await bucket.delete(project.zipFileId);
+					console.log("✅ Deleted old zip file");
 				} catch (err) {
-					console.warn("Failed to delete old zip file:", err.message);
+					console.log("❌ Failed to delete old zip file:", err);
 				}
 			}
 
 			const uploadStream = bucket.openUploadStream(`${projectId}.zip`);
-			readableStream.pipe(uploadStream);
+			const fileReadStream = fs.createReadStream(filePath);
+			fileReadStream.pipe(uploadStream);
 
-			uploadStream.on("finish", async () => {
-				project.zipFileId = uploadStream.id;
-				project.size = fileBuffer.length;
-				await project.save();
+			await new Promise((resolve, reject) => {
+				uploadStream.on("finish", async () => {
+					const stats = await fs.promises.stat(filePath);
+					project.zipFileId = uploadStream.id;
+					project.size = stats.size;
+					await project.save();
+					console.log("✅ DB updated with new zip file");
+					resolve();
+				});
+				uploadStream.on("error", reject);
 			});
 
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 
 			try {
-				await fs.access(projectDir); // If directory exists, this will succeed
-				await fs.rm(projectDir, { recursive: true, force: true });
+				await fsp.access(projectDir);
+				await fsp.rm(projectDir, { recursive: true, force: true });
+				console.log(`Building project now...`);
 			} catch (err) {
-				// Directory doesn't exist, no need to delete
+				console.log(`Building project now...`, err);
 			}
 
-			const zip = new JSZip();
-			const content = await fs.readFile(req.file.path);
-			const zipData = await zip.loadAsync(content);
+			await unzipProject(filePath, projectDir);
 
-			await Promise.all(
-				Object.keys(zipData.files).map(async (relativePath) => {
-					const file = zipData.files[relativePath];
-					if (file.dir) return;
+			const { success, output } = await buildSorobanContract(projectId);
 
-					const fileContent = await file.async("nodebuffer");
-
-					const absolutePath = path.join(projectDir, relativePath);
-					await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-					await fs.writeFile(absolutePath, fileContent);
-				})
-			);
-
-			await fs.unlink(req.file.path);
-
-			const result = await compileSorobanContract(projectId);
-
-			const items = await fs.readdir(projectDir);
-			const [rootFolderName] = items;
-			const targetDir = path.join(projectDir, rootFolderName);
-
-			if (!result.success) {
+			if (!success) {
 				return res.status(400).json({
-					status: "error",
-					error: result.error,
-					output: result.output,
-					code: result.code,
+					success,
+					output,
 				});
 			}
 
 			return res.json({
-				success: true,
-				output: result.output,
-				message: "Build completed successfully",
+				success,
+				output,
 			});
 		} catch (err) {
 			console.error("Build failed:", err);
 			return res.status(500).json({
 				success: false,
-				error: "Unexpected build failure",
-				details: err.message,
+				output: err,
 			});
 		}
 	}
@@ -405,24 +375,24 @@ app.post(
 	async (req, res) => {
 		try {
 			try {
-				await fs.access(path.join(__dirname, "temps"));
+				await fsp.access(path.join(__dirname, "temps"));
 			} catch (err) {
 				console.error("Temp directory missing, recreating...");
-				await fs.mkdir(path.join(__dirname, "temps"), { recursive: true });
+				await fsp.mkdir(path.join(__dirname, "temps"), { recursive: true });
 			}
 
 			const projectId = req.params.projectId;
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 
 			try {
-				await fs.access(projectDir); // If directory exists, this will succeed
-				await fs.rm(projectDir, { recursive: true, force: true });
+				await fsp.access(projectDir); // If directory exists, this will succeed
+				await fsp.rm(projectDir, { recursive: true, force: true });
 			} catch (err) {
 				// Directory doesn't exist, no need to delete
 			}
 
 			const zip = new JSZip();
-			const content = await fs.readFile(req.file.path);
+			const content = await fsp.readFile(req.file.path);
 			const zipData = await zip.loadAsync(content);
 
 			await Promise.all(
@@ -433,14 +403,14 @@ app.post(
 					const fileContent = await file.async("nodebuffer");
 
 					const absolutePath = path.join(projectDir, relativePath);
-					await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-					await fs.writeFile(absolutePath, fileContent);
+					await fsp.mkdir(path.dirname(absolutePath), { recursive: true });
+					await fsp.writeFile(absolutePath, fileContent);
 				})
 			);
 
-			await fs.unlink(req.file.path);
+			await fsp.unlink(req.file.path);
 
-			const testResults = await runRustTests(req.params.projectId);
+			const testResults = await runTests(req.params.projectId);
 			res.json(testResults);
 		} catch (err) {
 			console.error("Testing failed:", err);
@@ -456,8 +426,8 @@ app.post("/api/projects/:projectId/delete", async (req, res) => {
 
 		// Check if the directory exists and delete it
 		try {
-			await fs.access(projectDir);
-			await fs.rm(projectDir, { recursive: true, force: true });
+			await fsp.access(projectDir);
+			await fsp.rm(projectDir, { recursive: true, force: true });
 			console.log(`Deleted folder for project ${projectId}`);
 		} catch (err) {
 			console.warn(
@@ -482,14 +452,14 @@ app.use((err, _req, res, _next) => {
 initializeStorage()
 	.then(() => {
 		server.listen(PORT, "0.0.0.0", () => {
-			console.log(`Server running on http://localhost:${PORT}`);
+			console.log(`✅ Server running on http://localhost:${PORT}`);
 			console.log(
-				`Language Server available on ws://localhost:${PORT}/rust-analyzer`
+				`✅ Language Server available on ws://localhost:${PORT}/rust-analyzer`
 			);
-			console.log(__dirname);
+			console.log(`✅ API available at http://localhost:${PORT}/api/projects`);
 		});
 	})
 	.catch((err) => {
-		console.error("Failed to initialize storage:", err);
+		console.error("❌ Failed to initialize storage:", err);
 		process.exit(1);
 	});

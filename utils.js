@@ -1,9 +1,11 @@
 import { spawn } from "child_process";
-import fs from "fs/promises";
+import fsp from "fs/promises";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { exec } from "child_process";
 import { promisify } from "util";
+import unzipper from "unzipper";
 
 export const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
@@ -12,58 +14,13 @@ const TEMP_DIR = path.join(__dirname, "temps");
 const execAsync = promisify(exec);
 
 export async function initializeStorage() {
-	await fs.mkdir(BASE_STORAGE_DIR, { recursive: true });
-	await fs.mkdir(TEMP_DIR, { recursive: true });
-}
-
-export function normalizePath(filePath) {
-	return filePath.replace(/\\/g, "/");
+	await fsp.mkdir(BASE_STORAGE_DIR, { recursive: true });
+	await fsp.mkdir(TEMP_DIR, { recursive: true });
 }
 
 export async function getProjectPath(projectId) {
 	const projectPath = path.join(BASE_STORAGE_DIR, projectId);
-	// await fs.mkdir(projectPath, { recursive: true });
 	return projectPath;
-}
-
-export async function saveProjectFile(projectId, filePath, content) {
-	const normalizedPath = normalizePath(filePath);
-	const absolutePath = path.join(
-		await getProjectPath(projectId),
-		normalizedPath
-	);
-
-	await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-	await fs.writeFile(absolutePath, content);
-}
-
-async function listProjectFiles(projectId) {
-	const projectPath = await getProjectPath(projectId);
-
-	return readDirRecursive(projectPath);
-}
-
-const readDirRecursive = async (dir) => {
-	const entries = await fs.readdir(dir, { withFileTypes: true });
-	const files = [];
-
-	for (const entry of entries) {
-		const fullPath = path.join(dir, entry.name);
-		if (entry.isDirectory()) {
-			files.push(...(await readDirRecursive(fullPath)));
-		} else {
-			const relativePath = path.relative(projectPath, fullPath);
-			files.push(normalizePath(relativePath));
-		}
-	}
-
-	return files;
-};
-
-async function readProjectFile(projectId, filePath) {
-	const projectPath = await getProjectPath(projectId);
-	const absolutePath = path.join(projectPath, normalizePath(filePath));
-	return fs.readFile(absolutePath, "utf8");
 }
 
 export async function formatRustCode(code) {
@@ -101,16 +58,16 @@ export async function formatRustCode(code) {
 	});
 }
 
-export async function runRustTests(projectId) {
+export async function runTests(projectId) {
 	try {
 		const projectDir = await getProjectPath(projectId);
 
-		const items = await fs.readdir(projectDir);
+		const items = await fsp.readdir(projectDir);
 		const [rootFolderName] = items;
 
 		const targetDir = path.join(projectDir, rootFolderName);
 		try {
-			await fs.access(path.join(targetDir, "Cargo.toml"));
+			await fsp.access(path.join(targetDir, "Cargo.toml"));
 		} catch {
 			return {
 				output:
@@ -131,33 +88,76 @@ export async function runRustTests(projectId) {
 	}
 }
 
-export async function compileSorobanContract(projectId) {
+export async function buildSorobanContract(projectId) {
 	try {
 		const projectDir = await getProjectPath(projectId);
 
-		const items = await fs.readdir(projectDir);
+		const items = await fsp.readdir(projectDir);
 		const [rootFolderName] = items;
 
 		const targetDir = path.join(projectDir, rootFolderName);
 
+		console.log({ projectDir, items, rootFolderName, targetDir });
+
 		const { stdout, stderr } = await execAsync("soroban contract build", {
 			cwd: targetDir,
 			timeout: 1_200_000,
+			maxBuffer: 100 * 1024 * 1024,
 		});
 
 		return {
 			success: true,
 			output: stdout + stderr,
-			wasmPath: path.join(projectDir, "target/wasm32v1-none/release"),
 		};
 	} catch (error) {
-		console.log(error);
+		console.log("Build failed", error);
+		const output = error.stdout + error.stderr;
 		return {
 			success: false,
-			error: error.message,
-			output: (error.stdout || "") + (error.stderr || ""),
-			code: error.code,
-			signal: error.signal,
+			output,
 		};
 	}
+}
+
+export async function unzipProject(filePath, projectDir) {
+	return new Promise((resolve, reject) => {
+		fs.createReadStream(filePath)
+			.pipe(unzipper.Parse())
+			.on("entry", async (entry) => {
+				const relativePath = entry.path;
+				const absolutePath = path.resolve(projectDir, relativePath);
+
+				// Prevent zip slip attack
+				if (!absolutePath.startsWith(path.resolve(projectDir))) {
+					entry.autodrain();
+					return reject(
+						new Error(`Blocked zip path traversal attempt: ${relativePath}`)
+					);
+				}
+
+				try {
+					if (entry.type === "Directory") {
+						await fsp.mkdir(absolutePath, { recursive: true });
+						entry.autodrain();
+					} else {
+						await fsp.mkdir(path.dirname(absolutePath), {
+							recursive: true,
+						});
+						entry.pipe(fs.createWriteStream(absolutePath));
+					}
+				} catch (err) {
+					entry.autodrain();
+					reject(err);
+				}
+			})
+			.on("close", async () => {
+				try {
+					await fsp.unlink(filePath);
+					resolve();
+				} catch (err) {
+					reject(err);
+				}
+			})
+			.on("error", reject);
+	});
 }
