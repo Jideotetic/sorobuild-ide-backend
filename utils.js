@@ -64,24 +64,25 @@ export async function runTests(projectId) {
 		const [rootFolderName] = items;
 
 		const targetDir = path.join(projectDir, rootFolderName);
-		try {
-			await fsp.access(path.join(targetDir, "Cargo.toml"));
-		} catch {
-			return {
-				output:
-					"Not a valid Rust project: Cargo.toml not found in the directory.",
-			};
-		}
+
+		console.log({ projectDir, items, rootFolderName, targetDir });
 
 		const { stdout, stderr } = await execAsync("cargo test -- --nocapture", {
 			cwd: targetDir,
 			timeout: 1_200_000,
+			maxBuffer: 100 * 1024 * 1024,
 		});
 
-		return { output: stdout };
-	} catch (error) {
 		return {
-			output: (error.stdout ?? "") + (error.stderr ?? "") || String(error),
+			success: true,
+			output: stdout + stderr,
+		};
+	} catch (error) {
+		console.log("Test failed", error);
+		const output = error.stdout + error.stderr;
+		return {
+			success: false,
+			output,
 		};
 	}
 }

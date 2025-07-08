@@ -391,47 +391,42 @@ app.post(
 	upload.single("file"),
 	async (req, res) => {
 		try {
-			try {
-				await fsp.access(path.join(__dirname, "temps"));
-			} catch (err) {
-				console.error("Temp directory missing, recreating...");
-				await fsp.mkdir(path.join(__dirname, "temps"), { recursive: true });
-			}
-
 			const projectId = req.params.projectId;
+			const filePath = req.file.path;
+
+			await updateDBCopy(req);
+
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
 
 			try {
-				await fsp.access(projectDir); // If directory exists, this will succeed
+				await fsp.access(projectDir);
 				await fsp.rm(projectDir, { recursive: true, force: true });
+				console.log(`Running test now...`);
 			} catch (err) {
-				// Directory doesn't exist, no need to delete
+				console.log(`Running test now...`, err);
 			}
 
-			const zip = new JSZip();
-			const content = await fsp.readFile(req.file.path);
-			const zipData = await zip.loadAsync(content);
+			await unzipProject(filePath, projectDir);
 
-			await Promise.all(
-				Object.keys(zipData.files).map(async (relativePath) => {
-					const file = zipData.files[relativePath];
-					if (file.dir) return;
+			const { success, output } = await runTests(projectId);
 
-					const fileContent = await file.async("nodebuffer");
+			if (!success) {
+				return res.status(400).json({
+					success,
+					output,
+				});
+			}
 
-					const absolutePath = path.join(projectDir, relativePath);
-					await fsp.mkdir(path.dirname(absolutePath), { recursive: true });
-					await fsp.writeFile(absolutePath, fileContent);
-				})
-			);
-
-			await fsp.unlink(req.file.path);
-
-			const testResults = await runTests(req.params.projectId);
-			res.json(testResults);
+			return res.json({
+				success,
+				output,
+			});
 		} catch (err) {
-			console.error("Testing failed:", err);
-			res.status(500).json({ error: "Testing failed" });
+			console.error("Test failed:", err);
+			return res.status(500).json({
+				success: false,
+				output: err,
+			});
 		}
 	}
 );
