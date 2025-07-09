@@ -1,4 +1,4 @@
-FROM rust:1.84
+FROM rust:1.81
 
 RUN apt-get update && \
     apt-get install -y curl ca-certificates gnupg && \
@@ -15,7 +15,7 @@ RUN apt-get update && \
 
 # Install Rust components
 RUN rustup component add rustfmt rust-analyzer rust-src && \
-    rustup target add wasm32v1-none wasm32-unknown-unknown
+    rustup target add wasm32-unknown-unknown
 
 # Install - Pre-built Soroban CLI
 RUN curl -sSL -o soroban.tar.gz https://github.com/stellar/soroban-cli/releases/download/v22.8.1/stellar-cli-22.8.1-x86_64-unknown-linux-gnu.tar.gz && \
@@ -25,6 +25,7 @@ RUN curl -sSL -o soroban.tar.gz https://github.com/stellar/soroban-cli/releases/
     rm soroban.tar.gz
 
 WORKDIR /app
+ENV SOROBAN_BUILD_TARGET=wasm32-unknown-unknown
 
 # Optimized layer caching for npm
 COPY package.json package-lock.json ./
