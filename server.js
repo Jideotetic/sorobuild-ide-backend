@@ -1,13 +1,11 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import helmet from "helmet";
 import multer from "multer";
-import JSZip from "jszip";
 import {
 	BASE_STORAGE_DIR,
 	initializeStorage,
@@ -18,6 +16,7 @@ import {
 	__filename,
 	unzipProject,
 	updateDBCopy,
+	saveToDB,
 } from "./utils.js";
 import { WebSocketServer } from "ws";
 import { Message, InitializeRequest } from "vscode-languageserver-protocol";
@@ -168,7 +167,6 @@ const launchLanguageServer = (runconfig, socket) => {
 };
 
 // API Endpoints
-
 app.post(
 	"/api/projects/upload-zip",
 	upload.single("file"),
@@ -176,37 +174,12 @@ app.post(
 		try {
 			const projectId = uuidv4();
 
-			const fileBuffer = await fsp.readFile(req.file.path);
+			await saveToDB(req, projectId);
 
-			console.log({ projectId, fileBuffer, req: req.file.path });
-
-			const readableStream = new Readable();
-			readableStream.push(fileBuffer);
-			readableStream.push(null);
-
-			const uploadStream = bucket.openUploadStream(`${projectId}.zip`);
-			readableStream.pipe(uploadStream);
-
-			uploadStream.on("finish", async () => {
-				await fsp.unlink(req.file.path);
-
-				const saved = await Project.create({
-					projectId,
-					zipFileId: uploadStream.id,
-					size: fileBuffer.length,
-				});
-
-				console.log("ZIP saved:", saved);
-				res.json({ projectId });
-			});
-
-			uploadStream.on("error", (err) => {
-				console.error("Upload failed:", err);
-				res.status(500).json({ error: "Failed to store ZIP in DB" });
-			});
+			res.json({ projectId });
 		} catch (err) {
-			console.error("Zip extraction failed:", err);
-			res.status(500).json({ error: "Failed to process zip file" });
+			console.error("Zip upload failed:", err);
+			res.status(500).json({ err });
 		}
 	}
 );

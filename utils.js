@@ -194,3 +194,27 @@ export async function updateDBCopy(req) {
 		uploadStream.on("error", reject);
 	});
 }
+
+export async function saveToDB(req, projectId) {
+	const filePath = req.file.path;
+
+	console.log({ projectId, filePath, req: req.url });
+
+	const uploadStream = bucket.openUploadStream(`${projectId}.zip`);
+	const fileReadStream = fs.createReadStream(filePath);
+	fileReadStream.pipe(uploadStream);
+
+	await new Promise((resolve, reject) => {
+		uploadStream.on("finish", async () => {
+			const stats = await fs.promises.stat(filePath);
+			await Project.create({
+				projectId,
+				zipFileId: uploadStream.id,
+				size: stats.size,
+			});
+			console.log("✅ Added new zip file to DB");
+			resolve();
+		});
+		uploadStream.on("error", reject);
+	});
+}
