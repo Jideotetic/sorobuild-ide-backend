@@ -5,8 +5,6 @@ services:
       - "3000:3000"
     volumes:
       - .:/app
-      - ./projects:/app/projects
-      - ./temps:/app/temps
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
     restart: always

@@ -25,13 +25,14 @@ RUN curl -sSL -o soroban.tar.gz https://github.com/stellar/soroban-cli/releases/
     rm soroban.tar.gz
 
 WORKDIR /app
-ENV SOROBAN_BUILD_TARGET=wasm32-unknown-unknown
 
 # Optimized layer caching for npm
-COPY package.json package-lock.json ./
-RUN npm install
+COPY package*.json ./
+RUN npm ci --omit=dev
 
 COPY . .
 
+ENV NODE_ENV=production
 EXPOSE 3000
+
 CMD ["node", "server.js"]
