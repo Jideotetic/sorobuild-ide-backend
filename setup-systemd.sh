@@ -25,11 +25,12 @@ docker system prune -f
 
 echo "🔄 Pulling latest changes..."
 cd "$APP_DIR"
-git pull origin main
+git pull origin main || echo "⚠️ Git pull failed or not a git repo, continuing..."
 
 echo "🔧 Creating systemd service file at $SERVICE_FILE..."
 
-sudo bash -c "cat > $SERVICE_FILE" <<EOF
+# Properly write the service file with variables expanded
+sudo tee "$SERVICE_FILE" > /dev/null <<EOF
 [Unit]
 Description=Docker Compose App - $SERVICE_NAME
 Requires=docker.service
