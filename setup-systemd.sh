@@ -2,12 +2,10 @@
 
 # This script sets up your Docker Compose app to run as a systemd service
 
-set -e # Exit on error
-
 SERVICE_NAME="sorobuild-ide-backend"
 APP_DIR="/home/jideotetic/sorobuild-ide-backend"
 REPO_URL="git@github.com:Jideotetic/sorobuild-ide-backend.git"
-DOCKER_COMPOSE_BIN=$(which docker compose)
+DOCKER_COMPOSE_BIN="/usr/bin/docker compose"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 if [ ! -d "$APP_DIR" ]; then
