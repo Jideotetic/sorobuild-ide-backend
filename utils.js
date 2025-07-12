@@ -7,7 +7,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import unzipper from "unzipper";
 import { Project } from "./models/project.js";
-import { bucket } from "./models/db.js";
+import { bucket, connectToMongoDB } from "./models/db.js";
 
 export const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
@@ -16,6 +16,7 @@ const TEMP_DIR = path.join(__dirname, "temps");
 const execAsync = promisify(exec);
 
 export async function initializeStorage() {
+	await connectToMongoDB();
 	await fsp.mkdir(BASE_STORAGE_DIR, { recursive: true });
 	await fsp.mkdir(TEMP_DIR, { recursive: true });
 }

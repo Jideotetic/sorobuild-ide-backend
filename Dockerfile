@@ -1,4 +1,10 @@
-FROM rust:1.81
+# syntax=docker/dockerfile:1
+
+ARG RUST_VERSION=1.81
+
+FROM rust:${RUST_VERSION}
+
+ENV NODE_ENV=production
 
 RUN apt-get update && \
     apt-get install -y curl ca-certificates gnupg && \
@@ -11,7 +17,6 @@ RUN apt-get update && \
         nodejs && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-
 
 # Install Rust components
 RUN rustup component add rustfmt rust-analyzer rust-src && \
@@ -26,13 +31,17 @@ RUN curl -sSL -o soroban.tar.gz https://github.com/stellar/soroban-cli/releases/
 
 WORKDIR /app
 
-# Optimized layer caching for npm
-COPY package*.json ./
-RUN npm ci --omit=dev
+# Download dependencies as a separate step to take advantage of Docker's caching.
+# Leverage a cache mount to /root/.npm to speed up subsequent builds.
+# Leverage a bind mounts to package.json and package-lock.json to avoid having to copy them into
+# into this layer.
+RUN --mount=type=bind,source=package.json,target=package.json \
+    --mount=type=bind,source=package-lock.json,target=package-lock.json \
+    --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev
 
 COPY . .
 
-ENV NODE_ENV=production
 EXPOSE 3000
 
 CMD ["node", "server.js"]

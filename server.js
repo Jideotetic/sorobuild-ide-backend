@@ -36,10 +36,7 @@ import { bucket } from "./models/db.js";
 import { Readable } from "stream";
 import archiver from "archiver";
 
-// Connect to MongoDB
-await connectToMongoDB();
-
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000;
 
 // Initialize multer for file uploads
 const storage = multer.diskStorage({

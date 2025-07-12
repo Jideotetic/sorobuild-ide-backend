@@ -2,29 +2,23 @@ services:
   backend1:
     build: .
     ports:
-      - "3001:3000"
-    volumes:
-      - .:/app
+      - "3000:3000"
     environment:
-      - NODE_ENV=production
+      NODE_ENV: production
     restart: always
 
   backend2:
     build: .
     ports:
-      - "3002:3000"
-    volumes:
-      - .:/app
+      - "3001:3000"
     environment:
-      - NODE_ENV=production
+      NODE_ENV: production
     restart: always
 
   backend3:
     build: .
     ports:
-      - "3003:3000"
-    volumes:
-      - .:/app
+      - "3002:3000"
     environment:
-      - NODE_ENV=production
+      NODE_ENV: production
     restart: always
