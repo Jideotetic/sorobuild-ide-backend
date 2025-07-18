@@ -1,24 +1,27 @@
 services:
-  backend1:
-    build: .
+  sorobuild-ide-backend-1:
+    image: jideotetic/sorobuild-ide-backend:latest
     ports:
       - "3000:3000"
+    env_file: .env
     environment:
       NODE_ENV: production
     restart: always
 
-  backend2:
-    build: .
+  sorobuild-ide-backend-2:
+    image: jideotetic/sorobuild-ide-backend:latest
     ports:
       - "3001:3000"
+    env_file: .env
     environment:
       NODE_ENV: production
     restart: always
 
-  backend3:
-    build: .
+  sorobuild-ide-backend-3:
+    image: jideotetic/sorobuild-ide-backend:latest
     ports:
       - "3002:3000"
+    env_file: .env
     environment:
       NODE_ENV: production
     restart: always

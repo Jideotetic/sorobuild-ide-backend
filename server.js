@@ -30,10 +30,8 @@ import {
 	forward,
 } from "vscode-ws-jsonrpc/server";
 import { createServer } from "http";
-import { connectToMongoDB } from "./models/db.js";
 import { Project } from "./models/project.js";
 import { bucket } from "./models/db.js";
-import { Readable } from "stream";
 import archiver from "archiver";
 
 const PORT = process.env.PORT || 3000;
