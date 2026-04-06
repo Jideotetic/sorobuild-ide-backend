@@ -105,6 +105,22 @@ export async function buildSorobanContract(projectId) {
 			maxBuffer: 100 * 1024 * 1024,
 		});
 
+		const wasmPath = path.join(targetDir, "target", "wasm32v1-none", "release");
+
+		const files = await fsp.readdir(wasmPath);
+		const wasmFile = files.find((f) => f.endsWith(".wasm"));
+
+		if (!wasmFile) {
+			throw new Error("WASM file not found after build");
+		}
+
+		const fullPath = path.join(wasmPath, wasmFile);
+
+		const wasmBuffer = fs.readFileSync(fullPath);
+		const hex = wasmBuffer.toString("hex");
+
+		console.dir({ stderr, targetDir, fullPath, hex });
+
 		return {
 			success: true,
 			output: stdout + stderr,
@@ -131,7 +147,7 @@ export async function unzipProject(filePath, projectDir) {
 				if (!absolutePath.startsWith(path.resolve(projectDir))) {
 					entry.autodrain();
 					return reject(
-						new Error(`Blocked zip path traversal attempt: ${relativePath}`)
+						new Error(`Blocked zip path traversal attempt: ${relativePath}`),
 					);
 				}
 
@@ -214,6 +230,45 @@ export async function saveToDB(req, projectId) {
 				size: stats.size,
 			});
 			console.log("✅ Added new zip file to DB");
+			resolve();
+		});
+		uploadStream.on("error", reject);
+	});
+}
+
+export async function updateInDB(req, projectId) {
+	const filePath = req.file.path;
+
+	console.log({ projectId, filePath, req: req.url });
+
+	// Find the existing project
+	const existingProject = await Project.findOne({ projectId });
+	if (!existingProject) {
+		throw new Error(`Project ${projectId} not found`);
+	}
+
+	// Delete the old zip file from GridFS
+	if (existingProject.zipFileId) {
+		await bucket.delete(existingProject.zipFileId);
+		console.log("🗑️ Deleted old zip file from GridFS");
+	}
+
+	// Upload the new zip file
+	const uploadStream = bucket.openUploadStream(`${projectId}.zip`);
+	const fileReadStream = fs.createReadStream(filePath);
+	fileReadStream.pipe(uploadStream);
+
+	await new Promise((resolve, reject) => {
+		uploadStream.on("finish", async () => {
+			const stats = await fs.promises.stat(filePath);
+			await Project.findOneAndUpdate(
+				{ projectId },
+				{
+					zipFileId: uploadStream.id,
+					size: stats.size,
+				},
+			);
+			console.log("✅ Updated zip file in DB");
 			resolve();
 		});
 		uploadStream.on("error", reject);

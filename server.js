@@ -17,6 +17,7 @@ import {
 	unzipProject,
 	updateDBCopy,
 	saveToDB,
+	updateInDB,
 } from "./utils.js";
 import { WebSocketServer } from "ws";
 import { Message, InitializeRequest } from "vscode-languageserver-protocol";
@@ -55,13 +56,14 @@ app.use(
 	cors({
 		origin: [
 			"http://localhost:5173",
+			"http://localhost:5174",
 			"http://127.0.0.1:5173",
 			"https://rust-ide-five.vercel.app",
 		],
 		methods: ["GET", "POST", "PUT"],
 		credentials: true,
 		allowedHeaders: ["*"],
-	})
+	}),
 );
 
 app.use(express.json({ limit: "750mb" }));
@@ -69,97 +71,97 @@ app.use(express.json({ limit: "750mb" }));
 const server = createServer(app);
 
 // Initialize WebSocket server for Language Server Protocol
-const wss = new WebSocketServer({
-	noServer: true,
-	perMessageDeflate: false,
-});
+// const wss = new WebSocketServer({
+// 	noServer: true,
+// 	perMessageDeflate: false,
+// });
 
 // Language Server Configuration
-const languageServerConfig = {
-	serverName: "RUST ANALYZER WEB SOCKET SERVER",
-	pathName: "/rust-analyzer",
-	serverPort: PORT,
-	runCommand: "rust-analyzer",
-	runCommandArgs: [],
-	logMessages: false,
-};
+// const languageServerConfig = {
+// 	serverName: "RUST ANALYZER WEB SOCKET SERVER",
+// 	pathName: "/rust-analyzer",
+// 	serverPort: PORT,
+// 	runCommand: "rust-analyzer",
+// 	runCommandArgs: [],
+// 	logMessages: false,
+// };
 
 // Handle WebSocket upgrades for LSP
-server.on("upgrade", (request, socket, head) => {
-	const baseURL = `http://${request.headers.host}/`;
-	const pathName = request.url
-		? new URL(request.url, baseURL).pathname
-		: undefined;
+// server.on("upgrade", (request, socket, head) => {
+// 	const baseURL = `http://${request.headers.host}/`;
+// 	const pathName = request.url
+// 		? new URL(request.url, baseURL).pathname
+// 		: undefined;
 
-	if (pathName === languageServerConfig.pathName) {
-		wss.handleUpgrade(request, socket, head, (webSocket) => {
-			console.log("WebSocket connection established for LSP");
-			const socket = {
-				send: (content) =>
-					webSocket.send(content, (error) => {
-						if (error) {
-							throw error;
-						}
-					}),
-				onMessage: (cb) =>
-					webSocket.on("message", (data) => {
-						cb(data);
-					}),
-				onError: (cb) => webSocket.on("error", cb),
-				onClose: (cb) => webSocket.on("close", cb),
-				dispose: () => webSocket.close(),
-			};
+// 	if (pathName === languageServerConfig.pathName) {
+// 		wss.handleUpgrade(request, socket, head, (webSocket) => {
+// 			console.log("WebSocket connection established for LSP");
+// 			const socket = {
+// 				send: (content) =>
+// 					webSocket.send(content, (error) => {
+// 						if (error) {
+// 							throw error;
+// 						}
+// 					}),
+// 				onMessage: (cb) =>
+// 					webSocket.on("message", (data) => {
+// 						cb(data);
+// 					}),
+// 				onError: (cb) => webSocket.on("error", cb),
+// 				onClose: (cb) => webSocket.on("close", cb),
+// 				dispose: () => webSocket.close(),
+// 			};
 
-			if (webSocket.readyState === webSocket.OPEN) {
-				launchLanguageServer(languageServerConfig, socket);
-			} else {
-				webSocket.on("open", () => {
-					launchLanguageServer(languageServerConfig, socket);
-				});
-			}
-		});
-	} else {
-		socket.destroy();
-	}
-});
+// 			if (webSocket.readyState === webSocket.OPEN) {
+// 				launchLanguageServer(languageServerConfig, socket);
+// 			} else {
+// 				webSocket.on("open", () => {
+// 					launchLanguageServer(languageServerConfig, socket);
+// 				});
+// 			}
+// 		});
+// 	} else {
+// 		socket.destroy();
+// 	}
+// });
 
-const launchLanguageServer = (runconfig, socket) => {
-	console.log("Attempting to launch language server...");
-	const { serverName, runCommand, runCommandArgs } = runconfig;
+// const launchLanguageServer = (runconfig, socket) => {
+// 	console.log("Attempting to launch language server...");
+// 	const { serverName, runCommand, runCommandArgs } = runconfig;
 
-	const reader = new WebSocketMessageReader(socket);
-	const writer = new WebSocketMessageWriter(socket);
-	const socketConnection = createConnection(reader, writer, () =>
-		socket.dispose()
-	);
-	const serverConnection = createServerProcess(
-		serverName,
-		runCommand,
-		runCommandArgs
-	);
+// 	const reader = new WebSocketMessageReader(socket);
+// 	const writer = new WebSocketMessageWriter(socket);
+// 	const socketConnection = createConnection(reader, writer, () =>
+// 		socket.dispose()
+// 	);
+// 	const serverConnection = createServerProcess(
+// 		serverName,
+// 		runCommand,
+// 		runCommandArgs
+// 	);
 
-	if (serverConnection) {
-		forward(socketConnection, serverConnection, (message) => {
-			if (Message.isRequest(message)) {
-				console.log("To rust-analyzer:", message);
-				if (message.method === InitializeRequest.type.method) {
-					const initializeParams = message.params;
-					initializeParams.processId = process.pid;
-				}
+// 	if (serverConnection) {
+// 		forward(socketConnection, serverConnection, (message) => {
+// 			if (Message.isRequest(message)) {
+// 				console.log("To rust-analyzer:", message);
+// 				if (message.method === InitializeRequest.type.method) {
+// 					const initializeParams = message.params;
+// 					initializeParams.processId = process.pid;
+// 				}
 
-				if (runconfig.requestMessageHandler !== undefined) {
-					return runconfig.requestMessageHandler(message);
-				}
-			}
-			if (Message.isResponse(message)) {
-				if (runconfig.responseMessageHandler !== undefined) {
-					return runconfig.responseMessageHandler(message);
-				}
-			}
-			return message;
-		});
-	}
-};
+// 				if (runconfig.requestMessageHandler !== undefined) {
+// 					return runconfig.requestMessageHandler(message);
+// 				}
+// 			}
+// 			if (Message.isResponse(message)) {
+// 				if (runconfig.responseMessageHandler !== undefined) {
+// 					return runconfig.responseMessageHandler(message);
+// 				}
+// 			}
+// 			return message;
+// 		});
+// 	}
+// };
 
 // API Endpoints
 app.post(
@@ -176,7 +178,24 @@ app.post(
 			console.error("Zip upload failed:", err);
 			res.status(500).json({ err });
 		}
-	}
+	},
+);
+
+app.put(
+	"/api/projects/upload-zip/:projectId",
+	upload.single("file"),
+	async (req, res) => {
+		try {
+			const { projectId } = req.params;
+
+			await updateInDB(req, projectId);
+
+			res.json({ projectId });
+		} catch (err) {
+			console.error("Zip update failed:", err);
+			res.status(500).json({ err });
+		}
+	},
 );
 
 app.get("/api/projects/:projectId/load", async (req, res) => {
@@ -238,7 +257,7 @@ app.post(
 			const zipFileName = `${projectId}-formatted.zip`;
 			res.setHeader(
 				"Content-Disposition",
-				`attachment; filename="${zipFileName}"`
+				`attachment; filename="${zipFileName}"`,
 			);
 			res.setHeader("Content-Type", "application/zip");
 
@@ -252,7 +271,7 @@ app.post(
 				output: err,
 			});
 		}
-	}
+	},
 );
 
 app.post(
@@ -266,6 +285,8 @@ app.post(
 			await updateDBCopy(req);
 
 			const projectDir = path.join(BASE_STORAGE_DIR, projectId);
+
+			console.log({ projectDir });
 
 			try {
 				await fsp.access(projectDir);
@@ -297,7 +318,7 @@ app.post(
 				output: err,
 			});
 		}
-	}
+	},
 );
 
 app.post(
@@ -342,7 +363,7 @@ app.post(
 				output: err,
 			});
 		}
-	}
+	},
 );
 
 app.post("/api/projects/:projectId/delete", async (req, res) => {
@@ -358,7 +379,7 @@ app.post("/api/projects/:projectId/delete", async (req, res) => {
 		} catch (err) {
 			console.warn(
 				`No folder to delete for project ${projectId}:`,
-				err.message
+				err.message,
 			);
 		}
 
@@ -380,7 +401,7 @@ initializeStorage()
 		server.listen(PORT, "0.0.0.0", () => {
 			console.log(`✅ Server running on http://localhost:${PORT}`);
 			console.log(
-				`✅ Language Server available on ws://localhost:${PORT}/rust-analyzer`
+				`✅ Language Server available on ws://localhost:${PORT}/rust-analyzer`,
 			);
 			console.log(`✅ API available at http://localhost:${PORT}/api/projects`);
 		});
