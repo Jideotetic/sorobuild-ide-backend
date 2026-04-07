@@ -1,11 +1,9 @@
 #!/bin/bash
 
-# This script sets up your Docker Compose app to run as a systemd service
-
-SERVICE_NAME="sorobuild-ide-backend"
-APP_DIR="/home/jideotetic/sorobuild-ide-backend"
+SERVICE_NAME="sorobuild-ide-server"
+APP_DIR="/home/tinkerpal/sorobuild-ide-backend"
 REPO_URL="git@github.com:Jideotetic/sorobuild-ide-backend.git"
-DOCKER_COMPOSE_BIN="/usr/bin/docker compose"
+DOCKER_BIN="/usr/bin/docker"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 if [ ! -d "$APP_DIR" ]; then
@@ -13,8 +11,8 @@ if [ ! -d "$APP_DIR" ]; then
   exit 1
 fi
 
-if [ -z "$DOCKER_COMPOSE_BIN" ]; then
-  echo "❌ Error: Docker Compose not found. Is Docker installed?"
+if [ ! -x "$DOCKER_BIN" ]; then
+  echo "❌ Error: Docker not found at $DOCKER_BIN"
   exit 1
 fi
 
@@ -35,11 +33,13 @@ Requires=docker.service
 After=docker.service
 
 [Service]
-Type=oneshot
-RemainAfterExit=true
+Type=simple
 WorkingDirectory=$APP_DIR
-ExecStart=$DOCKER_COMPOSE_BIN up -d --pull always
-ExecStop=$DOCKER_COMPOSE_BIN down --volumes --remove-orphans
+# ExecStartPre=$DOCKER_BIN build --no-cache -t socketfi-server .
+ExecStart=$DOCKER_BIN compose up --build
+ExecStop=$DOCKER_BIN compose down
+Restart=always
+RestartSec=5
 TimeoutStartSec=0
 
 [Install]
@@ -47,7 +47,6 @@ WantedBy=multi-user.target
 EOF
 
 echo "🔄 Reloading systemd and enabling service..."
-sudo systemctl daemon-reexec
 sudo systemctl daemon-reload
 sudo systemctl enable ${SERVICE_NAME}.service
 
