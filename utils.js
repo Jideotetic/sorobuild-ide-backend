@@ -8,6 +8,7 @@ import { promisify } from "util";
 import unzipper from "unzipper";
 import { Project } from "./models/project.js";
 import { bucket, connectToMongoDB } from "./models/db.js";
+import crypto from "crypto";
 
 export const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
@@ -119,7 +120,35 @@ export async function buildSorobanContract(projectId) {
 		const wasmBuffer = fs.readFileSync(fullPath);
 		const hex = wasmBuffer.toString("hex");
 
-		console.dir({ stderr, targetDir, fullPath, hex });
+		const wasmHash = crypto
+			.createHash("sha256")
+			.update(wasmBuffer)
+			.digest("hex");
+
+		// const output = stdout + stderr;
+
+		// // Extract wasm hash
+		// const hashMatch = output.match(/Wasm Hash:\s*([a-fA-F0-9]+)/);
+		// const wasmHash = hashMatch ? hashMatch[1] : null;
+
+		// if (!wasmHash) {
+		// 	console.warn("Wasm hash not found in build output");
+		// }
+
+		console.dir({ stderr, targetDir, fullPath, hex, wasmHash });
+
+		const existingProject = await Project.findOne({ projectId });
+		if (!existingProject) {
+			throw new Error(`Project ${projectId} not found`);
+		}
+
+		await Project.findOneAndUpdate(
+			{ projectId },
+			{
+				hex,
+				wasmHash,
+			},
+		);
 
 		return {
 			success: true,
