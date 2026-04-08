@@ -71,97 +71,97 @@ app.use(express.json({ limit: "750mb" }));
 const server = createServer(app);
 
 // Initialize WebSocket server for Language Server Protocol
-// const wss = new WebSocketServer({
-// 	noServer: true,
-// 	perMessageDeflate: false,
-// });
+const wss = new WebSocketServer({
+	noServer: true,
+	perMessageDeflate: false,
+});
 
 // Language Server Configuration
-// const languageServerConfig = {
-// 	serverName: "RUST ANALYZER WEB SOCKET SERVER",
-// 	pathName: "/rust-analyzer",
-// 	serverPort: PORT,
-// 	runCommand: "rust-analyzer",
-// 	runCommandArgs: [],
-// 	logMessages: false,
-// };
+const languageServerConfig = {
+	serverName: "RUST ANALYZER WEB SOCKET SERVER",
+	pathName: "/rust-analyzer",
+	serverPort: PORT,
+	runCommand: "rust-analyzer",
+	runCommandArgs: [],
+	logMessages: false,
+};
 
 // Handle WebSocket upgrades for LSP
-// server.on("upgrade", (request, socket, head) => {
-// 	const baseURL = `http://${request.headers.host}/`;
-// 	const pathName = request.url
-// 		? new URL(request.url, baseURL).pathname
-// 		: undefined;
+server.on("upgrade", (request, socket, head) => {
+	const baseURL = `http://${request.headers.host}/`;
+	const pathName = request.url
+		? new URL(request.url, baseURL).pathname
+		: undefined;
 
-// 	if (pathName === languageServerConfig.pathName) {
-// 		wss.handleUpgrade(request, socket, head, (webSocket) => {
-// 			console.log("WebSocket connection established for LSP");
-// 			const socket = {
-// 				send: (content) =>
-// 					webSocket.send(content, (error) => {
-// 						if (error) {
-// 							throw error;
-// 						}
-// 					}),
-// 				onMessage: (cb) =>
-// 					webSocket.on("message", (data) => {
-// 						cb(data);
-// 					}),
-// 				onError: (cb) => webSocket.on("error", cb),
-// 				onClose: (cb) => webSocket.on("close", cb),
-// 				dispose: () => webSocket.close(),
-// 			};
+	if (pathName === languageServerConfig.pathName) {
+		wss.handleUpgrade(request, socket, head, (webSocket) => {
+			console.log("WebSocket connection established for LSP");
+			const socket = {
+				send: (content) =>
+					webSocket.send(content, (error) => {
+						if (error) {
+							throw error;
+						}
+					}),
+				onMessage: (cb) =>
+					webSocket.on("message", (data) => {
+						cb(data);
+					}),
+				onError: (cb) => webSocket.on("error", cb),
+				onClose: (cb) => webSocket.on("close", cb),
+				dispose: () => webSocket.close(),
+			};
 
-// 			if (webSocket.readyState === webSocket.OPEN) {
-// 				launchLanguageServer(languageServerConfig, socket);
-// 			} else {
-// 				webSocket.on("open", () => {
-// 					launchLanguageServer(languageServerConfig, socket);
-// 				});
-// 			}
-// 		});
-// 	} else {
-// 		socket.destroy();
-// 	}
-// });
+			if (webSocket.readyState === webSocket.OPEN) {
+				launchLanguageServer(languageServerConfig, socket);
+			} else {
+				webSocket.on("open", () => {
+					launchLanguageServer(languageServerConfig, socket);
+				});
+			}
+		});
+	} else {
+		socket.destroy();
+	}
+});
 
-// const launchLanguageServer = (runconfig, socket) => {
-// 	console.log("Attempting to launch language server...");
-// 	const { serverName, runCommand, runCommandArgs } = runconfig;
+const launchLanguageServer = (runconfig, socket) => {
+	console.log("Attempting to launch language server...");
+	const { serverName, runCommand, runCommandArgs } = runconfig;
 
-// 	const reader = new WebSocketMessageReader(socket);
-// 	const writer = new WebSocketMessageWriter(socket);
-// 	const socketConnection = createConnection(reader, writer, () =>
-// 		socket.dispose()
-// 	);
-// 	const serverConnection = createServerProcess(
-// 		serverName,
-// 		runCommand,
-// 		runCommandArgs
-// 	);
+	const reader = new WebSocketMessageReader(socket);
+	const writer = new WebSocketMessageWriter(socket);
+	const socketConnection = createConnection(reader, writer, () =>
+		socket.dispose(),
+	);
+	const serverConnection = createServerProcess(
+		serverName,
+		runCommand,
+		runCommandArgs,
+	);
 
-// 	if (serverConnection) {
-// 		forward(socketConnection, serverConnection, (message) => {
-// 			if (Message.isRequest(message)) {
-// 				console.log("To rust-analyzer:", message);
-// 				if (message.method === InitializeRequest.type.method) {
-// 					const initializeParams = message.params;
-// 					initializeParams.processId = process.pid;
-// 				}
+	if (serverConnection) {
+		forward(socketConnection, serverConnection, (message) => {
+			if (Message.isRequest(message)) {
+				console.log("To rust-analyzer:", message);
+				if (message.method === InitializeRequest.type.method) {
+					const initializeParams = message.params;
+					initializeParams.processId = process.pid;
+				}
 
-// 				if (runconfig.requestMessageHandler !== undefined) {
-// 					return runconfig.requestMessageHandler(message);
-// 				}
-// 			}
-// 			if (Message.isResponse(message)) {
-// 				if (runconfig.responseMessageHandler !== undefined) {
-// 					return runconfig.responseMessageHandler(message);
-// 				}
-// 			}
-// 			return message;
-// 		});
-// 	}
-// };
+				if (runconfig.requestMessageHandler !== undefined) {
+					return runconfig.requestMessageHandler(message);
+				}
+			}
+			if (Message.isResponse(message)) {
+				if (runconfig.responseMessageHandler !== undefined) {
+					return runconfig.responseMessageHandler(message);
+				}
+			}
+			return message;
+		});
+	}
+};
 
 // API Endpoints
 app.post(
